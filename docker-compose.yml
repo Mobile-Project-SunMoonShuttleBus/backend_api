@@ -1,0 +1,30 @@
+services:
+  main_server:
+    build: 
+      context: ./node_js
+      args:
+        - PORT=${SERVER_PORT}
+    env_file:
+      - ./.env
+    ports:
+      - "${SERVER_PORT}:${SERVER_PORT}"
+    networks:
+      - bus_api
+    depends_on:
+      - database
+  
+  database:
+    image: mongo:latest
+    env_file:
+      - ./.env
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - bus_api
+  
+networks:
+  bus_api:
+    driver: bridge
+
+volumes:
+  mongo_data:
