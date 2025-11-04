@@ -13,6 +13,9 @@ app.use(express.urlencoded({ extended: true }));
 // 데이터베이스 연결
 connectDB();
 
+// 라우트 설정
+app.use('/api/auth', require('./routes/authRoutes'));
+
 // 루트 경로
 app.get('/', (req, res) => {
   res.json({ message: '구동중' });

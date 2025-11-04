@@ -34,6 +34,7 @@ const initializeDatabase = async () => {
     require('../models/Timetable');
     require('../models/ShuttleRoute');
     require('../models/CrowdReport');
+    require('../models/TokenBlacklist');
     
     // 테이블 생성
     const User = mongoose.model('User');
@@ -41,6 +42,7 @@ const initializeDatabase = async () => {
     const Timetable = mongoose.model('Timetable');
     const ShuttleRoute = mongoose.model('ShuttleRoute');
     const CrowdReport = mongoose.model('CrowdReport');
+    const TokenBlacklist = mongoose.model('TokenBlacklist');
     
     // 컬럼 생성
     await User.createIndexes();
@@ -48,6 +50,7 @@ const initializeDatabase = async () => {
     await Timetable.createIndexes();
     await ShuttleRoute.createIndexes();
     await CrowdReport.createIndexes();
+    await TokenBlacklist.createIndexes();
     
     console.log('데이터베이스 초기화 완료');
   } catch (error) {

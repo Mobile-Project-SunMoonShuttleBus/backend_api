@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const bcrypt = require('bcrypt');
 
 const schoolAccountSchema = new mongoose.Schema({
   userId: {
@@ -24,6 +25,22 @@ const schoolAccountSchema = new mongoose.Schema({
   updatedAt: {
     type: Date,
     default: Date.now
+  }
+});
+
+// 학교 비밀번호 해시 (저장 전)
+schoolAccountSchema.pre('save', async function(next) {
+  if (!this.isModified('schoolPassword')) {
+    return next()
+  }
+  
+  // 솔트 기법 사용
+  try {
+    const salt = await bcrypt.genSalt(10);
+    this.schoolPassword = await bcrypt.hash(this.schoolPassword, salt);
+    next();
+  } catch (error) {
+    next(error);
   }
 });
 

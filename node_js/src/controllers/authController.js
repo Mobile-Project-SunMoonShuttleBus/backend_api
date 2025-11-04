@@ -1,0 +1,167 @@
+const User = require('../models/User');
+const SchoolAccount = require('../models/SchoolAccount');
+const TokenBlacklist = require('../models/TokenBlacklist');
+const { createToken } = require('../middleware/auth');
+const jwt = require('jsonwebtoken');
+
+// 회원가입
+const register = async (req, res) => {
+  try {
+    const { userId, Password } = req.body;
+
+    // 입력 검증
+    if (!userId || !Password) {
+      return res.status(400).json({ message: 'ID와 비밀번호를 입력해주세요.' });
+    }
+
+    if (userId.length < 4 || userId.length > 20) {
+      return res.status(400).json({ message: 'ID는 4자 이상 20자 이하여야 합니다.' });
+    }
+
+    if (Password.length < 6) {
+      return res.status(400).json({ message: '비밀번호는 6자 이상이어야 합니다.' });
+    }
+
+    // 중복 확인
+    const existingUser = await User.findOne({ userId });
+    if (existingUser) {
+      return res.status(409).json({ message: '이미 존재하는 ID입니다.' });
+    }
+
+    // 사용자 생성
+    const user = new User({
+      userId,
+      password: Password
+    });
+
+    await user.save();
+
+    res.status(201).json({ message: '회원가입이 완료되었습니다.' });
+  } catch (error) {
+    console.error('회원가입 오류:', error);
+    res.status(500).json({ message: '회원가입 중 오류가 발생했습니다.' });
+  }
+};
+
+// 로그인
+const login = async (req, res) => {
+  try {
+    const { userId, Password } = req.body;
+
+    // 입력 검증
+    if (!userId || !Password) {
+      return res.status(400).json({ message: 'ID와 비밀번호를 입력해주세요.' });
+    }
+
+    // 사용자 찾기
+    const user = await User.findOne({ userId });
+    if (!user) {
+      return res.status(401).json({ message: '로그인 실패' });
+    }
+
+    // 비밀번호 확인
+    const isPasswordValid = await user.comparePassword(Password);
+    if (!isPasswordValid) {
+      return res.status(401).json({ message: '로그인 실패' });
+    }
+
+    // JWT 토큰 생성
+    const userObjectId = user._id.toString();
+    const accessToken = createToken(userObjectId);
+
+    res.status(200).json({
+      message: '로그인 성공',
+      accessToken
+    });
+  } catch (error) {
+    console.error('로그인 오류:', error);
+    res.status(500).json({ message: '로그인 중 오류가 발생했습니다.' });
+  }
+};
+
+// 학교 포털 계정 정보 저장
+const saveSchoolAccount = async (req, res) => {
+  try {
+    const userId = req.user.userId; // JWT에서 추출한 사용자 ID
+    const { schoolId, schoolPassword } = req.body;
+
+    // 입력 검증
+    if (!schoolId || !schoolPassword) {
+      return res.status(400).json({ message: '학교 ID와 비밀번호를 입력해주세요.' });
+    }
+
+    // 사용자 찾기
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: '사용자를 찾을 수 없습니다.' });
+    }
+
+    // 학교 계정 정보 저장 또는 업데이트
+    const schoolAccount = await SchoolAccount.findOneAndUpdate(
+      { userId },
+      {
+        userId,
+        schoolId,
+        schoolPassword
+      },
+      {
+        new: true,
+        upsert: true
+      }
+    );
+
+    res.status(200).json({ message: '계정 정보 저장 완료' });
+  } catch (error) {
+    console.error('학교 계정 저장 오류:', error);
+    res.status(500).json({ message: '계정 정보 저장 중 오류가 발생했습니다.' });
+  }
+};
+
+// 로그아웃
+const logout = async (req, res) => {
+  try {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+
+    if (!token) {
+      return res.status(400).json({ message: '토큰이 필요합니다.' });
+    }
+
+    // 토큰 디코딩하여 만료 시간 및 사용자 정보 확인
+    const decoded = jwt.decode(token);
+    if (!decoded || !decoded.exp || !decoded.userId) {
+      return res.status(400).json({ message: '유효하지 않은 토큰입니다.' });
+    }
+
+    // 토큰 만료 시간 계산
+    const expiresAt = new Date(decoded.exp * 1000);
+    const userId = decoded.userId;
+
+    // 블랙리스트에 토큰 추가 (만료 시간까지 유지)
+    await TokenBlacklist.findOneAndUpdate(
+      { token },
+      {
+        token,
+        userId,
+        expiresAt
+      },
+      {
+        upsert: true,
+        new: true
+      }
+    );
+
+    res.status(200).json({ message: '로그아웃 성공' });
+  } catch (error) {
+    console.error('로그아웃 오류:', error);
+    res.status(500).json({ message: '로그아웃 중 오류가 발생했습니다.' });
+  }
+};
+
+module.exports = {
+  register,
+  login,
+  logout,
+  saveSchoolAccount
+};
+
