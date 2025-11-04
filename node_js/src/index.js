@@ -1,22 +1,24 @@
-const http = require('http');
+const express = require('express');
+require('dotenv').config();
+const connectDB = require('./config/database');
 
+const app = express();
 const PORT = process.env.SERVER_PORT || 8080;
+const HOST = '0.0.0.0';
 
-const HOST = '0.0.0.0'; 
+// 미들웨어
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-const server = http.createServer((req, res) => {
-    
-    if (req.url === '/') {
-        res.writeHead(200, { 
-            'Content-Type': 'text/html; charset=utf-8' 
-        });
-        res.write('<h1>Hello World</h1>');
-    } else {
-        res.writeHead(404);
-        res.end();
-    }
+// 데이터베이스 연결
+connectDB();
+
+// 루트 경로
+app.get('/', (req, res) => {
+  res.json({ message: '구동중' });
 });
 
-server.listen(PORT, HOST, () => {
-    console.log('서버 실행중');
+// 서버 시작
+app.listen(PORT, HOST, () => {
+  console.log(`서버 실행중: http://${HOST}:${PORT}`);
 });
