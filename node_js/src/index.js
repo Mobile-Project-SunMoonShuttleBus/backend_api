@@ -21,6 +21,10 @@ app.get('/', (req, res) => {
   res.json({ message: '구동중' });
 });
 
+// 셔틀버스 스케줄러 시작
+const shuttleBusScheduler = require('./services/shuttleBusScheduler');
+shuttleBusScheduler.startScheduler();
+
 // 서버 시작
 app.listen(PORT, HOST, () => {
   console.log(`서버 실행중: http://${HOST}:${PORT}`);
