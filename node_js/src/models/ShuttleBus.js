@@ -51,6 +51,8 @@ const shuttleBusSchema = new mongoose.Schema({
 // 복합 인덱스: 요일별, 출발지별 조회 최적화
 shuttleBusSchema.index({ dayType: 1, departure: 1 });
 shuttleBusSchema.index({ dayType: 1, departure: 1, arrival: 1 });
+// 금요일 필터링 최적화: 평일 + 금요일 운행 여부
+shuttleBusSchema.index({ dayType: 1, fridayOperates: 1, departure: 1, departureTime: 1 });
 
 // 업데이트 시간 자동 갱신
 shuttleBusSchema.pre('findOneAndUpdate', function(next) {

@@ -26,8 +26,25 @@ async function main() {
     
     console.log(`\n크롤링 완료: ${result.schedulesFound}개 발견, 신규 ${result.saved}개, 업데이트 ${result.updated}개\n`);
     
+    // DB 저장 예시 출력 (샘플 5개)
     console.log('\n' + '='.repeat(60));
-    console.log('저장된 데이터 확인');
+    console.log('DB 저장 예시 (샘플 5개)');
+    console.log('='.repeat(60));
+    const sampleSchedules = await ShuttleBus.find({}).limit(5).sort({ createdAt: -1 });
+    sampleSchedules.forEach((schedule, idx) => {
+      console.log(`\n[샘플 ${idx + 1}]`);
+      console.log(JSON.stringify({
+        departure: schedule.departure,
+        arrival: schedule.arrival,
+        departureTime: schedule.departureTime,
+        fridayOperates: schedule.fridayOperates,
+        dayType: schedule.dayType,
+        note: schedule.note
+      }, null, 2));
+    });
+    
+    console.log('\n' + '='.repeat(60));
+    console.log('저장된 데이터 확인 (전체)');
     console.log('='.repeat(60));
     
     const dayTypes = ['평일', '토요일/공휴일', '일요일'];

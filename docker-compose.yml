@@ -4,6 +4,8 @@ services:
       context: ./node_js
       args:
         - PORT=${SERVER_PORT}
+    environment:
+      - DOCKER_ENV=true
     env_file:
       - ./.env
     ports:

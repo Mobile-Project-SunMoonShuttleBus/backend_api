@@ -7,13 +7,14 @@
     "check": "node check.js"
   },
   "dependencies": {
-    "express": "^4.19.2",
-    "mongoose": "^8.4.0",
-    "dotenv": "^16.4.5",
-    "bcrypt": "^5.1.1",
-    "jsonwebtoken": "^9.0.2",
     "axios": "^1.6.0",
+    "bcrypt": "^5.1.1",
     "cheerio": "^1.0.0-rc.12",
-    "node-cron": "^3.0.3"
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.4.0",
+    "node-cron": "^3.0.3",
+    "puppeteer": "^24.29.1"
   }
 }

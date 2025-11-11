@@ -1,29 +1,69 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
 const ShuttleBus = require('../models/ShuttleBus');
+let puppeteer = null;
+try {
+  puppeteer = require('puppeteer');
+} catch (e) {
+  // puppeteer가 설치되지 않은 경우 무시
+}
 
 // 크롤링할 URL 목록
 const CRAWL_URLS = {
   평일: {
     '아산캠퍼스': 'https://lily.sunmoon.ac.kr/Page2/About/About08_04_02_01_01_01.aspx',
     '천안 아산역': 'https://lily.sunmoon.ac.kr/Page2/About/About08_04_02_01_01_02.aspx',
-    '천안역': 'https://lily.sunmoon.ac.kr/Page2/About/About08_04_02_01_02.aspx',
-    '천안터미널': 'https://lily.sunmoon.ac.kr/Page2/About/About08_04_02_01_03.aspx'
+    '천안역': 'https://lily.sunmoon.ac.kr/Page2/About/About08_04_02_01_01_02.aspx',
+    '천안 터미널': 'https://lily.sunmoon.ac.kr/Page2/About/About08_04_02_01_02.aspx',
+    '온양역/아산터미널': 'https://lily.sunmoon.ac.kr/Page2/About/About08_04_02_01_03.aspx'
   },
   '토요일/공휴일': {
     '아산캠퍼스': 'https://lily.sunmoon.ac.kr/Page2/About/About08_04_02_02_01.aspx',
     '천안 아산역': 'https://lily.sunmoon.ac.kr/Page2/About/About08_04_03_02_03.aspx',
-    '천안역': 'https://lily.sunmoon.ac.kr/Page2/About/About08_04_02_02_02.aspx'
+    '천안역': 'https://lily.sunmoon.ac.kr/Page2/About/About08_04_03_02_03.aspx',
+    '천안 터미널': 'https://lily.sunmoon.ac.kr/Page2/About/About08_04_02_02_02.aspx'
   },
   '일요일': {
     '아산캠퍼스': 'https://lily.sunmoon.ac.kr/Page2/About/About08_04_02_03_01.aspx',
     '천안아산역': 'https://lily.sunmoon.ac.kr/Page2/About/About08_04_03_03_03.aspx',
-    '천안역': 'https://lily.sunmoon.ac.kr/Page2/About/About08_04_02_03_02.aspx'
+    '천안역': 'https://lily.sunmoon.ac.kr/Page2/About/About08_04_03_03_03.aspx',
+    '천안 터미널': 'https://lily.sunmoon.ac.kr/Page2/About/About08_04_02_03_02.aspx'
   }
 };
 
-//HTML 페이지 가져오기
+// HTML 페이지 로드
 async function fetchHtml(url) {
+  const usePuppeteer = process.env.USE_PUPPETEER !== 'false' && puppeteer !== null;
+  
+  if (usePuppeteer) {
+    try {
+      const browser = await puppeteer.launch({
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox']
+      });
+      const page = await browser.newPage();
+      
+      await page.goto(url, {
+        waitUntil: 'networkidle2',
+        timeout: 30000
+      });
+      
+      // 렌더링 완료 대기
+      await page.waitForSelector('table', { timeout: 10000 }).catch(() => {});
+      
+      // 최종 HTML 확보
+      const html = await page.evaluate(() => {
+        return document.documentElement.outerHTML;
+      });
+      
+      await browser.close();
+      return html;
+    } catch (error) {
+      console.warn(`Puppeteer로 HTML 가져오기 실패 (${url}), axios로 폴백:`, error.message);
+    }
+  }
+  
+  // axios로 기본 요청
   try {
     const response = await axios.get(url, {
       timeout: 30000,
@@ -45,10 +85,25 @@ function normalizeDeparture(departure) {
     '천안 아산역': '천안 아산역',
     '천안아산역': '천안 아산역',
     '천안역': '천안역',
-    '천안터미널': '천안터미널',
-    '천안 터미널': '천안터미널',
+    '천안터미널': '천안 터미널',
+    '천안 터미널': '천안 터미널',
+    '터미널': '천안 터미널',
+    '선문대': '아산캠퍼스',
+    '선문대학교': '아산캠퍼스',
+    '선문대(도착)': '아산캠퍼스',
+    '선문대(출발)': '아산캠퍼스',
     '온양역/아산터미널': '온양역/아산터미널',
-    '온양역/터미널': '온양역/아산터미널'
+    '온양역/터미널': '온양역/아산터미널',
+    '온양온천역': '온양온천역',
+    '온양 온천역': '온양온천역',
+    '주은아파트': '주은아파트 버스정류장',
+    '주은아파트 버스정류장': '주은아파트 버스정류장',
+    '권곡초 버스정류장': '권곡초 버스정류장',
+    '권곡초': '권곡초 버스정류장',
+    '아산터미널': '아산터미널',
+    '하이렉스파 건너편': '하이렉스파 건너편',
+    '하이렉스파건너편': '하이렉스파 건너편',
+    '용암마을': '용암마을'
   };
   return normalized[departure] || departure;
 }
@@ -60,44 +115,54 @@ function normalizeArrival(arrival) {
     '천안 아산역': '천안 아산역',
     '천안아산역': '천안 아산역',
     '천안역': '천안역',
-    '천안터미널': '천안터미널',
-    '천안 터미널': '천안터미널',
+    '천안터미널': '천안 터미널',
+    '천안 터미널': '천안 터미널',
+    '터미널': '천안 터미널',
     '온양역/아산터미널': '온양역/아산터미널',
-    '온양역/터미널': '온양역/아산터미널'
+    '온양역/터미널': '온양역/아산터미널',
+    '온양온천역': '온양온천역',
+    '온양 온천역': '온양온천역',
+    '주은아파트': '주은아파트 버스정류장',
+    '주은아파트 버스정류장': '주은아파트 버스정류장',
+    '권곡초 버스정류장': '권곡초 버스정류장',
+    '권곡초': '권곡초 버스정류장',
+    '하이렉스파 건너편': '하이렉스파 건너편',
+    '하이렉스파건너편': '하이렉스파 건너편',
+    '용암마을': '용암마을'
   };
   return normalized[arrival] || arrival;
 }
 
-// HTML 시간표 파싱
+// 시간표 파싱
 function parseScheduleTable(html, dayType, expectedDeparture) {
   const schedules = [];
   const $ = cheerio.load(html);
   
-  // 출발지와 도착지 설정
+  // 출발, 도착 기본값
   const normalizedDeparture = normalizeDeparture(expectedDeparture);
   
-  // 출발지에 따른 도착지 결정
+  // 출발지별 기본 도착지 설정
   let defaultArrival = '아산캠퍼스';
   const pageText = $('body').text();
   
   if (normalizedDeparture === '아산캠퍼스') {
-    // 아산캠퍼스에서 출발하는 경우: 페이지에서 도착지 정보 찾기
+    // 아산캠퍼스 페이지는 문구로 도착지 판단
     if (pageText.includes('천안 아산역') || pageText.includes('천안아산역') || pageText.includes('아산역')) {
       defaultArrival = '천안 아산역';
     } else if (pageText.includes('천안역')) {
       defaultArrival = '천안역';
-    } else if (pageText.includes('천안터미널')) {
-      defaultArrival = '천안터미널';
+    } else if (pageText.includes('천안터미널') || pageText.includes('천안 터미널') || pageText.includes('터미널')) {
+      defaultArrival = '천안 터미널';
     } else {
-      // 도착지를 찾을 수 없으면 이 노선은 저장하지 않음
+      // 도착지를 찾지 못하면 저장 스킵
       defaultArrival = null;
     }
   } else {
-    // 천안 아산역, 천안역, 천안터미널 등에서 출발하는 경우: 도착지는 아산캠퍼스
+    // 기타 페이지는 기본값 아산캠퍼스
     defaultArrival = '아산캠퍼스';
   }
   
-  // 아산캠퍼스 -> 아산캠퍼스는 저장하지 않음
+  // 아산캠퍼스 왕복은 저장하지 않음
   if (normalizedDeparture === '아산캠퍼스' && defaultArrival === '아산캠퍼스') {
     return schedules;
   }
@@ -106,36 +171,33 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
     return schedules;
   }
   
-  // 모든 테이블 찾기
+  // 테이블 순회
   $('table').each((tableIdx, table) => {
     const $table = $(table);
     const tableText = $table.text();
     
-    // 시간표 테이블 확인
+    // 시간표 여부 확인
     if (!tableText.includes('순') && !tableText.match(/\d{1,2}:\d{2}/)) {
-      return; // 다음 테이블로
+      return;
     }
-    
-    // 테이블에 현재 페이지의 출발지가 포함되어 있는지 확인 (동적)
-    // 테이블 헤더를 확인하기 전에 간단한 전처리만 수행
     
     // 테이블 행 파싱
     const rows = $table.find('tr');
     let headerRowIdx = -1;
     const columnMap = {};
     
-    // 헤더 행 찾기 및 컬럼 매핑
+    // 헤더 행 탐색
     rows.each((rowIdx, row) => {
       const $row = $(row);
       const cells = $row.find('td, th');
       const rowText = $row.text().trim();
       
-      // 헤더 행 찾기 (순번, 출발, 도착, 시간 행)
+      // 헤더 조건
       if (rowText.includes('순') && (rowText.includes('출발') || rowText.includes('도착') || 
           rowText.match(/\d{1,2}:\d{2}/) || rowText.includes('시간'))) {
         headerRowIdx = rowIdx;
         
-        // 각 컬럼의 역할 파악
+        // 컬럼 역할 파악
         cells.each((cellIdx, cell) => {
           const cellText = $(cell).text().trim();
           if (cellText.includes('순') || cellText === '순번') {
@@ -153,26 +215,25 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
           }
         });
         
-        return false; // break
+        return false;
       }
     });
     
     // 데이터 행 파싱
     if (headerRowIdx >= 0) {
-      // 헤더 이전 행들에서 출발지/도착지 정보 찾기
-      // 현재 페이지의 출발지만 찾기 (다른 출발지는 무시)
-      let tableDepartureStops = []; // 여러 출발지 가능하지만 현재 페이지 출발지만 저장
+      // 헤더 이전 행에서도 출발·도착 정보 확인
+      let tableDepartureStops = [];
       let tableArrivalStop = null;
       
-      // 헤더 행에서도 출발지/도착지 찾기
+      // 헤더에서 출발·도착 추출
       const $headerRow = $(rows[headerRowIdx]);
       const headerCells = $headerRow.find('td, th');
       
       headerCells.each((cellIdx, cell) => {
         const cellText = $(cell).text().trim();
-        // 출발지 찾기 - 현재 페이지의 출발지만 추가
+        // 출발지 후보 수집
         if (cellText.includes('출발') && (cellText.includes('캠퍼스') || cellText.includes('역') || cellText.includes('터미널'))) {
-          // 아산캠퍼스 출발 페이지인 경우, 아산캠퍼스 출발 컬럼만 확인
+          // 아산캠퍼스 페이지는 아산캠퍼스 컬럼만 사용
           if (normalizedDeparture === '아산캠퍼스') {
             const normalizedCellText = cellText.replace(/\s+/g, '');
             if (normalizedCellText.includes('아산캠퍼스') && normalizedCellText.includes('출발') && 
@@ -182,12 +243,12 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
               }
             }
           } else {
-            // 다른 출발지인 경우
+            // 기타 출발지
             const matches = cellText.match(/([가-힣\s]+(?:캠퍼스|역|터미널))/g);
             if (matches) {
               matches.forEach(match => {
                 const normalized = normalizeDeparture(match.replace(/출발|\(출발\)/g, '').trim());
-                // 현재 페이지의 출발지만 추가
+                // 현재 페이지의 출발지와 일치할 때만 추가
                 if (normalized && normalized === normalizedDeparture && !tableDepartureStops.includes(normalized)) {
                   tableDepartureStops.push(normalized);
                 }
@@ -195,7 +256,7 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
             }
           }
         }
-        // 도착지 찾기
+        // 도착지 후보 수집
         if (cellText.includes('도착') && (cellText.includes('캠퍼스') || cellText.includes('역') || cellText.includes('터미널'))) {
           const matches = cellText.match(/([가-힣\s]+(?:캠퍼스|역|터미널))/g);
           if (matches) {
@@ -209,18 +270,18 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
         }
       });
       
-      // 헤더 이전 행들에서도 찾기
+      // 헤더 위쪽 행 확인
       for (let i = headerRowIdx - 1; i >= Math.max(0, headerRowIdx - 5); i--) {
         const $prevRow = $(rows[i]);
         const prevRowText = $prevRow.text().trim();
         const prevCells = $prevRow.find('td, th');
         
-        // 출발지 찾기 - 현재 페이지의 출발지만 추가
+        // 출발지 후보 보강
         if (prevRowText.includes('출발')) {
           prevCells.each((idx, cell) => {
             const cellText = $(cell).text().trim();
             if (cellText && (cellText.includes('캠퍼스') || cellText.includes('역') || cellText.includes('터미널'))) {
-              // 아산캠퍼스 출발 페이지인 경우, 아산캠퍼스 출발만 확인
+              // 아산캠퍼스 페이지는 아산캠퍼스만
               if (normalizedDeparture === '아산캠퍼스') {
                 const normalizedCellText = cellText.replace(/\s+/g, '');
                 if (normalizedCellText.includes('아산캠퍼스') && normalizedCellText.includes('출발') && 
@@ -231,7 +292,7 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
                 }
               } else {
                 const normalized = normalizeDeparture(cellText.replace(/출발|\(출발\)/g, '').trim());
-                // 현재 페이지의 출발지만 추가
+                // 현재 출발지와 동일한 경우만 저장
                 if (normalized && normalized === normalizedDeparture && !tableDepartureStops.includes(normalized)) {
                   tableDepartureStops.push(normalized);
                 }
@@ -240,7 +301,7 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
           });
         }
         
-        // 도착지 찾기
+        // 도착지 후보 보강
         if (prevRowText.includes('도착')) {
           prevCells.each((idx, cell) => {
             const cellText = $(cell).text().trim();
@@ -254,78 +315,361 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
         }
       }
       
-      // 테이블 구조 완전 동적 분석: 헤더에서 모든 출발지 컬럼 인덱스 찾기
+      // 헤더에서 출발 컬럼 인덱스 찾기
       const $headerRowForColIdx = $(rows[headerRowIdx]);
       const headerCellsForColIdx = $headerRowForColIdx.find('td, th');
       
-      // 모든 출발지 컬럼 인덱스 맵 생성 (완전 동적)
+      // 출발지 컬럼 인덱스 맵
       const departureColIndices = {};
       
-      // 헤더 행을 순회하며 각 출발지 컬럼 인덱스 찾기 (하드코딩 없이 완전 동적)
+      // 헤더 셀 순회
       headerCellsForColIdx.each((cellIdx, cell) => {
         const cellText = $(cell).text().trim();
         const normalizedCellText = cellText.replace(/\s+/g, '');
         
-        // 출발지 컬럼 찾기 (완전 동적 - 하드코딩 최소화)
-        // "출발" 키워드가 있거나, 출발지 이름 패턴이 있는 경우 확인
-        // 도착지 컬럼이 아닌 경우만 확인 (도착 키워드가 없어야 함)
+        // 출발 컬럼 후보
         const hasDepartureKeyword = normalizedCellText.includes('출발');
         const hasArrivalKeyword = normalizedCellText.includes('도착');
         const hasLocationName = normalizedCellText.includes('캠퍼스') || 
                                normalizedCellText.includes('역') || 
-                               normalizedCellText.includes('터미널');
+                               normalizedCellText.includes('터미널') ||
+                               normalizedCellText.includes('건너편') ||
+                               normalizedCellText.includes('마을');
         
-        // 출발지 컬럼인지 확인: "출발" 키워드가 있거나, 위치 이름이 있고 "도착"이 없으면 출발지로 간주
+        // 출발 컬럼 조건
         const isDepartureColumn = (hasDepartureKeyword || hasLocationName) && !hasArrivalKeyword;
         
         if (isDepartureColumn) {
-          // 천안 아산역 출발 먼저 확인 (더 구체적이므로 우선)
-          // "천안아산역"이 포함되어 있고 "도착"이 없으면 출발지로 간주
+          // 천안 아산역
           if (normalizedCellText.includes('천안아산역')) {
             departureColIndices['천안 아산역'] = cellIdx;
           }
-          // 천안역 출발: "천안역"이 있고 "아산역"과 "도착"이 없어야 함
+          // 천안역
           else if (normalizedCellText.includes('천안역') && !normalizedCellText.includes('아산역')) {
             departureColIndices['천안역'] = cellIdx;
           }
-          // 아산캠퍼스 출발: "아산캠퍼스"가 있고 "천안"과 "도착"이 없어야 함
-          else if (normalizedCellText.includes('아산캠퍼스') && 
+          // 아산캠퍼스
+          else if ((normalizedCellText.includes('아산캠퍼스') || normalizedCellText.includes('선문대')) && 
               !normalizedCellText.includes('천안') && 
               !normalizedCellText.includes('천안아산역')) {
             departureColIndices['아산캠퍼스'] = cellIdx;
           }
-          // 천안터미널 출발: "터미널"이 포함되어 있고 "도착"이 없으면 천안터미널로 간주
-          else if (normalizedCellText.includes('터미널') && !normalizedCellText.includes('천안역')) {
-            departureColIndices['천안터미널'] = cellIdx;
+          // 천안 터미널
+          else if (normalizedCellText.includes('천안터미널') || (normalizedCellText.includes('터미널') && !normalizedCellText.includes('천안역'))) {
+            departureColIndices['천안 터미널'] = cellIdx;
           }
-          // 새로운 출발지가 추가되어도 인식 가능하도록 (일반적인 패턴)
-          // "출발" 키워드가 있고 아직 매핑되지 않은 출발지인 경우
-          // (추후 새로운 출발지 추가 시 이 부분에서 자동으로 인식 가능)
+          // 온양온천역
+          else if (normalizedCellText.includes('온천역')) {
+            departureColIndices['온양온천역'] = cellIdx;
+          }
+          // 주은아파트
+          else if (normalizedCellText.includes('주은아파트')) {
+            departureColIndices['주은아파트 버스정류장'] = cellIdx;
+          }
+          // 아산터미널
+          else if (normalizedCellText.includes('아산터미널')) {
+            departureColIndices['아산터미널'] = cellIdx;
+          }
+          // 권곡초
+          else if (normalizedCellText.includes('권곡초')) {
+            departureColIndices['권곡초 버스정류장'] = cellIdx;
+          }
+          // 하이렉스파 건너편
+          else if (normalizedCellText.includes('하이렉스파')) {
+            departureColIndices['하이렉스파 건너편'] = cellIdx;
+          }
+          // 용암마을
+          else if (normalizedCellText.includes('용암마을')) {
+            departureColIndices['용암마을'] = cellIdx;
+          }
+          // 기타 패턴 대비 (추가 확장 용도)
         }
       });
       
-      // 테이블에서 찾은 모든 출발지 컬럼 처리
-      // 하나의 테이블에 여러 출발지가 있을 수 있으므로, 각 출발지별로 처리
+      // 출발지별 처리 목록 구성
       const departureKeysToProcess = [];
       
-      // 현재 페이지의 출발지가 있으면 추가
+      // 현재 페이지 출발지 우선
       if (departureColIndices[normalizedDeparture] !== undefined) {
         departureKeysToProcess.push(normalizedDeparture);
       }
       
-      // 아산캠퍼스 출발 페이지인 경우, 같은 테이블에 다른 출발지 컬럼이 있으면 함께 처리
-      // 예: "천안아산역 출발", "천안역 출발" 등
-      // 단, "천안터미널"은 제외 (별도 페이지에서 처리)
+      // 아산캠퍼스 페이지는 천안 아산역/천안 터미널 컬럼만 함께 사용
       if (normalizedDeparture === '아산캠퍼스') {
         // 천안 아산역 출발 컬럼이 있으면 함께 처리
         if (departureColIndices['천안 아산역'] !== undefined) {
           departureKeysToProcess.push('천안 아산역');
         }
-        // 천안역 출발 컬럼이 있으면 함께 처리
-        if (departureColIndices['천안역'] !== undefined) {
-          departureKeysToProcess.push('천안역');
+        if (departureColIndices['천안 터미널'] !== undefined) {
+          departureKeysToProcess.push('천안 터미널');
         }
-        // 천안터미널은 제외 (별도 페이지에서 처리하므로)
+      }
+
+      // 온양역/아산터미널 특수 처리
+      if (normalizedDeparture === '온양역/아산터미널') {
+        const campusDepartureIdx = departureColIndices['아산캠퍼스'];
+        const juunIdx = departureColIndices['주은아파트 버스정류장'];
+        const onyangIdx = departureColIndices['온양온천역'];
+        const terminalIdx = departureColIndices['아산터미널'];
+        const gungokIdx = departureColIndices['권곡초 버스정류장'];
+        const campusArrivalIdx = columnMap.arrival;
+
+        const extractTime = (cellText) => {
+          if (!cellText) return null;
+          const trimmed = cellText.trim();
+          if (!trimmed || /^[XΧ]+$/.test(trimmed) || trimmed === '경유') {
+            return null;
+          }
+          const match = trimmed.match(/(\d{1,2})[:;](\d{2})/);
+          if (!match) return null;
+          const hour = match[1].padStart(2, '0');
+          const minute = match[2];
+          return `${hour}:${minute}`;
+        };
+
+        for (let i = headerRowIdx + 1; i < rows.length; i++) {
+          const $row = $(rows[i]);
+          const cells = $row.find('td, th');
+          if (cells.length === 0) continue;
+
+          const firstCell = $(cells[0]).text().trim();
+          if (!/^[0-9]+$/.test(firstCell)) continue;
+
+          let noteText = '';
+          if (columnMap.note !== undefined && columnMap.note < cells.length) {
+            noteText = $(cells[columnMap.note]).text().trim();
+          }
+          if (!noteText) {
+            const collected = [];
+            cells.each((idx, cell) => {
+              const value = $(cell).text().trim();
+              if (value.includes('금(X)') || value.includes('경유') || value.includes('추가') || value.includes('운행')) {
+                collected.push(value);
+              }
+            });
+            if (collected.length > 0) {
+              noteText = collected.join(', ');
+            }
+          }
+
+          const rowText = $row.text();
+          const fridayOperates = !(rowText.includes('금(X)') || noteText.includes('금(X)'));
+
+        const stopColumns = [
+            { idx: juunIdx, name: '주은아파트 버스정류장' },
+            { idx: onyangIdx, name: '온양온천역' },
+            { idx: terminalIdx, name: '아산터미널' },
+            { idx: gungokIdx, name: '권곡초 버스정류장' }
+          ].filter(col => col.idx !== undefined && col.idx < cells.length);
+
+          // 정류장 -> 아산캠
+          for (const { idx, name } of stopColumns) {
+            const timeText = $(cells[idx]).text();
+            const departureTime = extractTime(timeText);
+            if (!departureTime) continue;
+
+            schedules.push({
+              departure: name,
+              arrival: '아산캠퍼스',
+              departureTime,
+              fridayOperates,
+              dayType,
+              note: noteText || '',
+              sourceUrl: CRAWL_URLS[dayType]?.[expectedDeparture] || ''
+            });
+          }
+
+          // 아산캠 -> 정류장
+          if (campusDepartureIdx !== undefined && campusDepartureIdx < cells.length) {
+            const campusDepartureTime = extractTime($(cells[campusDepartureIdx]).text());
+            if (campusDepartureTime) {
+              for (const { idx, name } of stopColumns) {
+                const stopValue = $(cells[idx]).text();
+                if (!extractTime(stopValue)) continue;
+
+                schedules.push({
+                  departure: '아산캠퍼스',
+                  arrival: name,
+                  departureTime: campusDepartureTime,
+                  fridayOperates,
+                  dayType,
+                  note: noteText || '',
+                  sourceUrl: CRAWL_URLS[dayType]?.[expectedDeparture] || ''
+                });
+              }
+            }
+          }
+        }
+
+        return;
+      }
+
+      // 천안역 특수 처리
+      if (normalizedDeparture === '천안역') {
+        const asanColIdx = departureColIndices['아산캠퍼스'];
+        const cheonanColIdx = departureColIndices['천안역'];
+
+        if (asanColIdx === undefined && cheonanColIdx === undefined) {
+          return;
+        }
+
+        const extractTime = (cellText) => {
+          if (!cellText) return null;
+          const trimmed = cellText.trim();
+          if (!trimmed || /^[XΧ]+$/.test(trimmed)) {
+            return null;
+          }
+          const match = trimmed.match(/(\d{1,2})[:;](\d{2})/);
+          if (!match) return null;
+          const hour = match[1].padStart(2, '0');
+          const minute = match[2];
+          return `${hour}:${minute}`;
+        };
+
+        for (let i = headerRowIdx + 1; i < rows.length; i++) {
+          const $row = $(rows[i]);
+          const cells = $row.find('td, th');
+          if (cells.length === 0) continue;
+
+          const firstCell = $(cells[0]).text().trim();
+          if (!/^[0-9]+$/.test(firstCell)) continue;
+
+          let noteText = '';
+          if (columnMap.note !== undefined && columnMap.note < cells.length) {
+            noteText = $(cells[columnMap.note]).text().trim();
+          }
+          if (!noteText) {
+            const collected = [];
+            cells.each((idx, cell) => {
+              const value = $(cell).text().trim();
+              if (value.includes('금(X)') || value.includes('중간노선') || value.includes('추가') || value.includes('운영')) {
+                collected.push(value);
+              }
+            });
+            if (collected.length > 0) {
+              noteText = collected.join(', ');
+            }
+          }
+
+          const rowText = $row.text();
+          const fridayOperates = !(rowText.includes('금(X)') || noteText.includes('금(X)'));
+
+          if (asanColIdx !== undefined && asanColIdx < cells.length) {
+            const asanTime = extractTime($(cells[asanColIdx]).text());
+            if (asanTime) {
+              schedules.push({
+                departure: '아산캠퍼스',
+                arrival: '천안역',
+                departureTime: asanTime,
+                fridayOperates,
+                dayType,
+                note: noteText || '',
+                sourceUrl: CRAWL_URLS[dayType]?.[expectedDeparture] || ''
+              });
+            }
+          }
+
+          if (cheonanColIdx !== undefined && cheonanColIdx < cells.length) {
+            const cheonanTime = extractTime($(cells[cheonanColIdx]).text());
+            if (cheonanTime) {
+              schedules.push({
+                departure: '천안역',
+                arrival: '아산캠퍼스',
+                departureTime: cheonanTime,
+                fridayOperates,
+                dayType,
+                note: noteText || '',
+                sourceUrl: CRAWL_URLS[dayType]?.[expectedDeparture] || ''
+              });
+            }
+          }
+        }
+
+        return;
+      }
+
+      // 천안 터미널 페이지 특수 처리: 아산캠퍼스 ↔ 천안 터미널 구간만 저장
+      if (normalizedDeparture === '천안 터미널') {
+        const asanColIdx = departureColIndices['아산캠퍼스'];
+        const terminalColIdx = departureColIndices['천안 터미널'];
+
+        if (asanColIdx === undefined && terminalColIdx === undefined) {
+          return;
+        }
+
+        const extractTime = (cellText) => {
+          if (!cellText) return null;
+          const trimmed = cellText.trim();
+          if (!trimmed || /^[XΧ]+$/.test(trimmed)) {
+            return null;
+          }
+          const match = trimmed.match(/(\d{1,2})[:;](\d{2})/);
+          if (!match) return null;
+          const hour = match[1].padStart(2, '0');
+          const minute = match[2];
+          return `${hour}:${minute}`;
+        };
+
+        for (let i = headerRowIdx + 1; i < rows.length; i++) {
+          const $row = $(rows[i]);
+          const cells = $row.find('td, th');
+          if (cells.length === 0) continue;
+
+          const firstCell = $(cells[0]).text().trim();
+          if (!/^[0-9]+$/.test(firstCell)) continue;
+
+          let noteText = '';
+          if (columnMap.note !== undefined && columnMap.note < cells.length) {
+            noteText = $(cells[columnMap.note]).text().trim();
+          }
+          if (!noteText) {
+            const collected = [];
+            cells.each((idx, cell) => {
+              const value = $(cell).text().trim();
+              if (value.includes('금(X)') || value.includes('중간노선') || value.includes('추가') || value.includes('운영') || value.includes('경유')) {
+                collected.push(value);
+              }
+            });
+            if (collected.length > 0) {
+              noteText = collected.join(', ');
+            }
+          }
+
+          const rowText = $row.text();
+          const fridayOperates = !(rowText.includes('금(X)') || noteText.includes('금(X)'));
+
+          if (asanColIdx !== undefined && asanColIdx < cells.length) {
+            const asanTime = extractTime($(cells[asanColIdx]).text());
+            if (asanTime) {
+              schedules.push({
+                departure: '아산캠퍼스',
+                arrival: '천안 터미널',
+                departureTime: asanTime,
+                fridayOperates,
+                dayType,
+                note: noteText || '',
+                sourceUrl: CRAWL_URLS[dayType]?.[expectedDeparture] || ''
+              });
+            }
+          }
+
+          if (terminalColIdx !== undefined && terminalColIdx < cells.length) {
+            const terminalTime = extractTime($(cells[terminalColIdx]).text());
+            if (terminalTime) {
+              schedules.push({
+                departure: '천안 터미널',
+                arrival: '아산캠퍼스',
+                departureTime: terminalTime,
+                fridayOperates,
+                dayType,
+                note: noteText || '',
+                sourceUrl: CRAWL_URLS[dayType]?.[expectedDeparture] || ''
+              });
+            }
+          }
+        }
+
+        return;
       }
       
       // 처리할 출발지가 없으면 다음 테이블로
@@ -437,8 +781,11 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
           continue;
         }
         
-        // 세미콜론(;)을 콜론(:)으로 정규화
-        const departureTime = departureTimeMatch[0].replace(';', ':');
+        // 시간 형식 정규화: HH:MM 형식으로 통일 (시는 2자리, 분은 2자리)
+        // 예: "8:10" -> "08:10", "19;45" -> "19:45"
+        const hour = departureTimeMatch[1].padStart(2, '0');
+        const minute = departureTimeMatch[2];
+        const departureTime = `${hour}:${minute}`;
         
         // X가 포함되어 있는지 확인
         const hasX = departureCellText.includes('X') || departureCellText.includes('Χ');
@@ -474,14 +821,6 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
         if (finalDeparture === '아산캠퍼스' && finalArrival === '아산캠퍼스') {
           if (process.env.DEBUG_CRAWLER) {
             console.log(`[${departureKey}] 아산캠퍼스 -> 아산캠퍼스는 저장하지 않음`);
-          }
-          continue;
-        }
-        
-        // 천안터미널 -> 아산캠퍼스는 저장하지 않음 (잘못된 데이터 방지)
-        if (finalDeparture === '천안터미널' && finalArrival === '아산캠퍼스') {
-          if (process.env.DEBUG_CRAWLER) {
-            console.log(`[${departureKey}] 천안터미널 -> 아산캠퍼스는 저장하지 않음`);
           }
           continue;
         }
