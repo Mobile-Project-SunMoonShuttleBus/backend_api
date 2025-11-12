@@ -9,6 +9,15 @@ router.get('/routes', busController.getBusRoutes);
 // 상세값 조회
 router.get('/route/:routeId', busController.getBusRoute);
 
+// 셔틀 시간표 조회
+router.get('/schedules', busController.getShuttleSchedules);
+
+// 셔틀 시간표 메타 정보
+router.get('/schedules/meta', busController.getShuttleScheduleMeta);
+
+// 정류장 목록
+router.get('/stops', busController.getShuttleStops);
+
 // 시간표 수동 업데이트 (테스트/관리용)
 router.post('/update-schedule', async (req, res) => {
   try {

@@ -15,6 +15,10 @@ const shuttleBusSchema = new mongoose.Schema({
     type: String,
     required: true
   },
+  arrivalTime: {
+    type: String,
+    default: null
+  },
   fridayOperates: {
     type: Boolean,
     required: true,
@@ -25,6 +29,21 @@ const shuttleBusSchema = new mongoose.Schema({
     enum: ['평일', '토요일/공휴일', '일요일'],
     required: true,
     index: true
+  },
+  viaStops: {
+    type: [
+      {
+        name: { type: String, required: true },
+        time: { type: String, default: null },
+        source: { type: String, enum: ['table', 'note'], default: 'table' }
+      }
+    ],
+    default: []
+  },
+  // 학생회관 탑승 가능 여부
+  studentHallBoardingAvailable: {
+    type: Boolean,
+    default: false
   },
   note: {
     type: String,

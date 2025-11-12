@@ -37,9 +37,12 @@ async function main() {
         departure: schedule.departure,
         arrival: schedule.arrival,
         departureTime: schedule.departureTime,
+        arrivalTime: schedule.arrivalTime,
         fridayOperates: schedule.fridayOperates,
         dayType: schedule.dayType,
-        note: schedule.note
+        note: schedule.note,
+        viaStops: schedule.viaStops,
+        studentHallBoardingAvailable: schedule.studentHallBoardingAvailable
       }, null, 2));
     });
     
@@ -95,12 +98,40 @@ async function main() {
             .forEach(schedule => {
               const fridayStatus = schedule.fridayOperates ? 'O' : 'X';
               const note = schedule.note ? ` (${schedule.note})` : '';
-              console.log(`    ${schedule.departureTime} - 금요일 운행: ${fridayStatus}${note}`);
+              const arrivalInfo = schedule.arrivalTime ? ` -> 도착 ${schedule.arrivalTime}` : '';
+              const viaInfo = schedule.viaStops && schedule.viaStops.length > 0
+                ? ` / 경유: ${schedule.viaStops.map(v => v.time ? `${v.name}(${v.time})` : v.name).join(', ')}`
+                : '';
+              const studentHallInfo = schedule.studentHallBoardingAvailable ? ' / 학생회관 탑승 가능' : '';
+              console.log(`    ${schedule.departureTime}${arrivalInfo} - 금요일 운행: ${fridayStatus}${note}${viaInfo}${studentHallInfo}`);
             });
         }
       }
       
       console.log(`\n총 ${validSchedules.length}개`);
+    }
+    
+    console.log('\n' + '='.repeat(60));
+    console.log('학생회관 탑승 가능 시간 목록');
+    console.log('='.repeat(60));
+    const studentHallSchedules = await ShuttleBus.find({
+      studentHallBoardingAvailable: true
+    }).sort({ dayType: 1, departure: 1, departureTime: 1 });
+    
+    if (studentHallSchedules.length === 0) {
+      console.log('표시할 데이터가 없습니다.');
+    } else {
+      studentHallSchedules.forEach(schedule => {
+        const viaInfo = schedule.viaStops && schedule.viaStops.length > 0
+          ? ` / 경유: ${schedule.viaStops.map(v => v.time ? `${v.name}(${v.time})` : v.name).join(', ')}`
+          : '';
+        console.log(
+          `[${schedule.dayType}] ${schedule.departure} -> ${schedule.arrival} ${schedule.departureTime}` +
+          `${schedule.arrivalTime ? ` -> ${schedule.arrivalTime}` : ''}${viaInfo}` +
+          `${schedule.note ? ` / 비고: ${schedule.note}` : ''}`
+        );
+      });
+      console.log(`\n총 ${studentHallSchedules.length}개\n`);
     }
     
     console.log('\n' + '='.repeat(60));
@@ -138,6 +169,51 @@ async function main() {
     arrivalStats.forEach(stat => {
       console.log(`  ${stat._id}: ${stat.count}개`);
     });
+    
+    console.log('\n' + '='.repeat(60));
+    console.log('경유지 통계');
+    console.log('='.repeat(60));
+    
+    const viaStopsStats = await ShuttleBus.aggregate([
+      { $unwind: { path: '$viaStops', preserveNullAndEmptyArrays: false } },
+      {
+        $group: {
+          _id: '$viaStops.name',
+          count: { $sum: 1 },
+          dayTypes: { $addToSet: '$dayType' }
+        }
+      },
+      { $sort: { count: -1 } }
+    ]);
+    
+    if (viaStopsStats.length === 0) {
+      console.log('경유지 데이터가 없습니다.');
+    } else {
+      viaStopsStats.forEach(stat => {
+        console.log(`  ${stat._id}: ${stat.count}회 (${stat.dayTypes.sort().join(', ')})`);
+      });
+    }
+    
+    console.log('\n' + '='.repeat(60));
+    console.log('경유지 포함 시간표 샘플 (5개)');
+    console.log('='.repeat(60));
+    
+    const viaStopsSamples = await ShuttleBus.find({
+      'viaStops.0': { $exists: true }
+    }).limit(5).sort({ createdAt: -1 });
+    
+    if (viaStopsSamples.length === 0) {
+      console.log('경유지가 포함된 시간표가 없습니다.');
+    } else {
+      viaStopsSamples.forEach((schedule, idx) => {
+        console.log(`\n[샘플 ${idx + 1}]`);
+        console.log(`  ${schedule.departure} -> ${schedule.arrival}`);
+        console.log(`  출발: ${schedule.departureTime}${schedule.arrivalTime ? ` / 도착: ${schedule.arrivalTime}` : ''}`);
+        console.log(`  경유지: ${schedule.viaStops.map(v => v.time ? `${v.name}(${v.time})` : v.name).join(', ')}`);
+        console.log(`  요일: ${schedule.dayType} / 금요일 운행: ${schedule.fridayOperates ? 'O' : 'X'}`);
+        if (schedule.note) console.log(`  비고: ${schedule.note}`);
+      });
+    }
     
     console.log('\n확인 완료\n');
     

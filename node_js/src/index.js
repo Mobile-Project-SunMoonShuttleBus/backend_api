@@ -15,6 +15,7 @@ connectDB();
 
 // 라우트 설정
 app.use('/api/auth', require('./routes/authRoutes'));
+app.use('/api/bus', require('./routes/busRoutes'));
 
 // 루트 경로
 app.get('/', (req, res) => {
