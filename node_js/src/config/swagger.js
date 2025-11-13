@@ -14,7 +14,7 @@ const options = {
     },
     servers: [
       {
-        url: process.env.API_BASE_URL || 'http://localhost:8080',
+        url: process.env.API_BASE_URL || 'http://localhost:8080/api',
         description: '개발 서버'
       }
     ],
@@ -109,7 +109,6 @@ const swaggerSpec = swaggerJsdoc(options);
 
 const swaggerSetup = (app) => {
   app.use('/api', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
-    customCss: '.swagger-ui .topbar { display: none }',
     customSiteTitle: '셔틀버스 API 문서'
   }));
 };

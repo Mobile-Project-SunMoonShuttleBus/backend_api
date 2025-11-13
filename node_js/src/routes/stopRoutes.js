@@ -24,8 +24,18 @@ const stopController = require('../controllers/stopController');
  *         name: dayType
  *         schema:
  *           type: string
- *         description: 요일 필터 (쉼표로 여러 개 가능)
- *         example: "평일"
+ *         description: |
+ *           요일 필터 (쉼표로 여러 개 가능).
+ *           
+ *           입력 가능 값:
+ *           - `평일`
+ *           - `토요일/공휴일`
+ *           - `월~목`
+ *           - `금요일`
+ *           - 또는 특정 요일 이름 (`월`, `화`, `수`, `목`, `금`, `토`, `일`)
+ *           
+ *           값을 비워두면 모든 요일의 정류장을 조회합니다.
+ *         example: "평일,토요일/공휴일"
  *     responses:
  *       200:
  *         description: 통합 정류장 목록 조회 성공

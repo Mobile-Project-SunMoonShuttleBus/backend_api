@@ -5,9 +5,61 @@ const mergeRequestParams = (req) => ({
   ...(req.query || {})
 });
 
+const CAMPUS_DAY_TYPE_GROUPS = [
+  {
+    display: '월~목',
+    matchValues: ['월~목', '월~목요일', '평일'],
+    aliases: ['월~목', '월~목요일', '평일']
+  },
+  {
+    display: '금요일',
+    matchValues: ['금요일', '금'],
+    aliases: ['금요일', '금']
+  }
+];
+
+const buildDayTypeMatchStage = (dayTypes) => {
+  if (!dayTypes || dayTypes.length === 0) return null;
+  if (dayTypes.length === 1) return { dayType: dayTypes[0] };
+  return { dayType: { $in: dayTypes } };
+};
+
+const normalizeCampusDayTypes = (raw) => {
+  if (!raw) return null;
+
+  const displaySet = new Set();
+  const matchSet = new Set();
+
+  String(raw)
+    .split(',')
+    .map((token) => token && token.trim())
+    .filter(Boolean)
+    .forEach((token) => {
+      const group = CAMPUS_DAY_TYPE_GROUPS.find(({ display, aliases }) =>
+        [display, ...(aliases || [])].includes(token)
+      );
+
+      if (group) {
+        displaySet.add(group.display);
+        group.matchValues.forEach((value) => matchSet.add(value));
+      } else {
+        displaySet.add(token);
+        matchSet.add(token);
+      }
+    });
+
+  if (displaySet.size === 0) return null;
+
+  return {
+    display: Array.from(displaySet),
+    match: Array.from(matchSet)
+  };
+};
+
 // 통학버스 시간표 조회
 exports.getCampusSchedules = async (req, res) => {
   try {
+    const requestParams = mergeRequestParams(req);
     const {
       dayType,
       departure,
@@ -17,17 +69,17 @@ exports.getCampusSchedules = async (req, res) => {
       endTime,
       limit,
       page
-    } = mergeRequestParams(req);
+    } = requestParams;
 
     const filter = {};
+    const normalizedDayTypes = normalizeCampusDayTypes(dayType);
     
     // 여러 요일 동시 조회 지원
-    if (dayType) {
-      const dayTypes = dayType.split(',').map(d => d.trim());
-      if (dayTypes.length === 1) {
-        filter.dayType = dayTypes[0];
+    if (normalizedDayTypes?.match?.length) {
+      if (normalizedDayTypes.match.length === 1) {
+        filter.dayType = normalizedDayTypes.match[0];
       } else {
-        filter.dayType = { $in: dayTypes };
+        filter.dayType = { $in: normalizedDayTypes.match };
       }
     }
     
@@ -91,7 +143,9 @@ exports.getCampusSchedules = async (req, res) => {
       page: pageSize > 0 ? pageNumber : null,
       limit: pageSize > 0 ? pageSize : null,
       filters: {
-        dayType: dayType || null,
+        dayType: normalizedDayTypes?.display
+          ? normalizedDayTypes.display.join(',')
+          : null,
         departure: departure || null,
         arrival: arrival || null,
         direction: direction || null,
@@ -113,18 +167,17 @@ exports.getCampusSchedules = async (req, res) => {
 // 통학버스 시간표 메타 정보 조회
 exports.getCampusScheduleMeta = async (req, res) => {
   try {
-    const { dayType } = mergeRequestParams(req);
-    const dayTypeFilter = dayType
-      ? Array.from(new Set(dayType.split(',').map((d) => d.trim()).filter(Boolean)))
-      : null;
+    const params = mergeRequestParams(req);
+    const normalizedDayTypes = normalizeCampusDayTypes(params.dayType);
 
     const matchStages = [];
-    if (dayTypeFilter && dayTypeFilter.length > 0) {
-      matchStages.push({ $match: { dayType: { $in: dayTypeFilter } } });
+    if (normalizedDayTypes?.match?.length) {
+      const matchCondition = buildDayTypeMatchStage(normalizedDayTypes.match);
+      if (matchCondition) matchStages.push({ $match: matchCondition });
     }
 
-    const distinctDayTypes = dayTypeFilter && dayTypeFilter.length > 0
-      ? dayTypeFilter
+    const distinctDayTypes = normalizedDayTypes?.match?.length
+      ? normalizedDayTypes.match
       : await CampusBus.distinct('dayType');
 
     const departures = await CampusBus.aggregate([
@@ -179,12 +232,12 @@ exports.getCampusScheduleMeta = async (req, res) => {
 exports.getCampusStops = async (req, res) => {
   try {
     const { dayType } = mergeRequestParams(req);
+    const normalizedDayTypes = normalizeCampusDayTypes(dayType);
+    const matchCondition = buildDayTypeMatchStage(normalizedDayTypes?.match);
 
-    const matchStage = {};
-    if (dayType) matchStage.dayType = dayType;
-
-    const [aggregated] = await CampusBus.aggregate([
-      { $match: matchStage },
+    const campusPipeline = [];
+    if (matchCondition) campusPipeline.push({ $match: matchCondition });
+    campusPipeline.push(
       {
         $project: {
           dayType: 1,
@@ -212,7 +265,10 @@ exports.getCampusStops = async (req, res) => {
           ]
         }
       }
-    ]);
+    );
+
+    const [aggregatedRaw] = await CampusBus.aggregate(campusPipeline);
+    const aggregated = aggregatedRaw || { departures: [], arrivals: [] };
 
     const stopMap = new Map();
 
@@ -244,15 +300,17 @@ exports.getCampusStops = async (req, res) => {
     });
 
     // 경유지 수집
-    const viaStopsData = await CampusBus.aggregate([
-      { $match: matchStage },
+    const viaStopsPipeline = [];
+    if (matchCondition) viaStopsPipeline.push({ $match: matchCondition });
+    viaStopsPipeline.push(
       { $unwind: '$viaStops' },
       {
         $group: {
           _id: { stop: '$viaStops.name', dayType: '$dayType', direction: '$direction' }
         }
       }
-    ]);
+    );
+    const viaStopsData = await CampusBus.aggregate(viaStopsPipeline);
 
     viaStopsData.forEach(({ _id }) => {
       if (_id.stop) {
@@ -277,7 +335,9 @@ exports.getCampusStops = async (req, res) => {
     res.json({
       total: stops.length,
       filters: {
-        dayType: dayType || null
+        dayType: normalizedDayTypes?.display
+          ? normalizedDayTypes.display.join(',')
+          : null
       },
       stops
     });

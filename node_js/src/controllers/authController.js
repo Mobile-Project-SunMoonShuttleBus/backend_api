@@ -7,10 +7,11 @@ const jwt = require('jsonwebtoken');
 // 회원가입
 const register = async (req, res) => {
   try {
-    const { userId, Password } = req.body;
+    const { userId, password, Password } = req.body;
+    const userPassword = password ?? Password;
 
     // 입력 검증
-    if (!userId || !Password) {
+    if (!userId || !userPassword) {
       return res.status(400).json({ message: 'ID와 비밀번호를 입력해주세요.' });
     }
 
@@ -18,7 +19,7 @@ const register = async (req, res) => {
       return res.status(400).json({ message: 'ID는 4자 이상 20자 이하여야 합니다.' });
     }
 
-    if (Password.length < 6) {
+    if (userPassword.length < 6) {
       return res.status(400).json({ message: '비밀번호는 6자 이상이어야 합니다.' });
     }
 
@@ -31,7 +32,7 @@ const register = async (req, res) => {
     // 사용자 생성
     const user = new User({
       userId,
-      password: Password
+      password: userPassword
     });
 
     await user.save();
@@ -46,10 +47,11 @@ const register = async (req, res) => {
 // 로그인
 const login = async (req, res) => {
   try {
-    const { userId, Password } = req.body;
+    const { userId, password, Password } = req.body;
+    const userPassword = password ?? Password;
 
     // 입력 검증
-    if (!userId || !Password) {
+    if (!userId || !userPassword) {
       return res.status(400).json({ message: 'ID와 비밀번호를 입력해주세요.' });
     }
 
@@ -60,7 +62,7 @@ const login = async (req, res) => {
     }
 
     // 비밀번호 확인
-    const isPasswordValid = await user.comparePassword(Password);
+    const isPasswordValid = await user.comparePassword(userPassword);
     if (!isPasswordValid) {
       return res.status(401).json({ message: '로그인 실패' });
     }

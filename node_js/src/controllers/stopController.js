@@ -1,103 +1,198 @@
 const ShuttleBus = require('../models/ShuttleBus');
 const CampusBus = require('../models/CampusBus');
 
+const STOP_DAY_TYPE_GROUPS = [
+  {
+    display: '평일',
+    shuttleValues: ['평일'],
+    campusValues: ['월~목', '월~목요일'],
+    aliases: ['평일', '주중']
+  },
+  {
+    display: '토요일/공휴일',
+    shuttleValues: ['토요일/공휴일'],
+    campusValues: [],
+    aliases: ['토요일/공휴일', '토요일', '공휴일', '주말', '토']
+  },
+  {
+    display: '일요일',
+    shuttleValues: ['일요일'],
+    campusValues: [],
+    aliases: ['일요일', '일']
+  },
+  {
+    display: '월~목',
+    shuttleValues: [],
+    campusValues: ['월~목', '월~목요일'],
+    aliases: ['월~목', '월~목요일', '월', '화', '수', '목']
+  },
+  {
+    display: '금요일',
+    shuttleValues: [],
+    campusValues: ['금요일', '금'],
+    aliases: ['금요일', '금']
+  }
+];
+
 const mergeRequestParams = (req) => ({
   ...(req.body || {}),
   ...(req.query || {})
 });
 
+const buildMatchCondition = (dayTypes) => {
+  if (!dayTypes || dayTypes.length === 0) return null;
+  if (dayTypes.length === 1) return { dayType: dayTypes[0] };
+  return { dayType: { $in: dayTypes } };
+};
+
+const normalizeStopDayTypes = (raw) => {
+  if (!raw) {
+    return { display: null, shuttle: null, campus: null };
+  }
+
+  const displaySet = new Set();
+  const shuttleSet = new Set();
+  const campusSet = new Set();
+
+  String(raw)
+    .split(',')
+    .map((token) => token && token.trim())
+    .filter(Boolean)
+    .forEach((token) => {
+      const group = STOP_DAY_TYPE_GROUPS.find(({ display, aliases }) =>
+        [display, ...(aliases || [])].includes(token)
+      );
+
+      if (group) {
+        displaySet.add(group.display);
+        group.shuttleValues.forEach((value) => shuttleSet.add(value));
+        group.campusValues.forEach((value) => campusSet.add(value));
+      } else {
+        displaySet.add(token);
+        shuttleSet.add(token);
+        campusSet.add(token);
+      }
+    });
+
+  return {
+    display: displaySet.size ? Array.from(displaySet) : null,
+    shuttle: shuttleSet.size ? Array.from(shuttleSet) : null,
+    campus: campusSet.size ? Array.from(campusSet) : null
+  };
+};
+
 // 통합 정류장 목록 조회
 exports.getAllStops = async (req, res) => {
   try {
     const { dayType } = mergeRequestParams(req);
-
-    const matchStage = {};
-    if (dayType) matchStage.dayType = dayType;
+    const normalizedDayTypes = normalizeStopDayTypes(dayType);
+    const shuttleMatchCondition = buildMatchCondition(normalizedDayTypes.shuttle);
+    const campusMatchCondition = buildMatchCondition(normalizedDayTypes.campus);
 
     // 셔틀버스 정류장 수집
-    const [shuttleAggregated] = await ShuttleBus.aggregate([
-      { $match: matchStage },
-      {
-        $project: {
-          dayType: 1,
-          departure: 1,
-          arrival: 1,
-          viaStops: 1
-        }
-      },
-      {
-        $facet: {
-          departures: [
-            {
-              $group: {
-                _id: { stop: '$departure', dayType: '$dayType' }
+    const shouldQueryShuttle = !dayType || !!shuttleMatchCondition;
+    let shuttleAggregated = { departures: [], arrivals: [] };
+    let shuttleViaStops = [];
+
+    if (shouldQueryShuttle) {
+      const shuttlePipeline = [];
+      if (shuttleMatchCondition) shuttlePipeline.push({ $match: shuttleMatchCondition });
+      shuttlePipeline.push(
+        {
+          $project: {
+            dayType: 1,
+            departure: 1,
+            arrival: 1,
+            viaStops: 1
+          }
+        },
+        {
+          $facet: {
+            departures: [
+              {
+                $group: {
+                  _id: { stop: '$departure', dayType: '$dayType' }
+                }
               }
-            }
-          ],
-          arrivals: [
-            {
-              $group: {
-                _id: { stop: '$arrival', dayType: '$dayType' }
+            ],
+            arrivals: [
+              {
+                $group: {
+                  _id: { stop: '$arrival', dayType: '$dayType' }
+                }
               }
-            }
-          ]
+            ]
+          }
         }
-      }
-    ]);
+      );
+      const [shuttleAggregatedRaw] = await ShuttleBus.aggregate(shuttlePipeline);
+      shuttleAggregated = shuttleAggregatedRaw || { departures: [], arrivals: [] };
+
+      const shuttleViaPipeline = [];
+      if (shuttleMatchCondition) shuttleViaPipeline.push({ $match: shuttleMatchCondition });
+      shuttleViaPipeline.push(
+        { $unwind: '$viaStops' },
+        {
+          $group: {
+            _id: { stop: '$viaStops.name', dayType: '$dayType' }
+          }
+        }
+      );
+      shuttleViaStops = await ShuttleBus.aggregate(shuttleViaPipeline);
+    }
 
     // 통학버스 정류장 수집
-    const [campusAggregated] = await CampusBus.aggregate([
-      { $match: matchStage },
-      {
-        $project: {
-          dayType: 1,
-          departure: 1,
-          arrival: 1,
-          direction: 1,
-          viaStops: 1
-        }
-      },
-      {
-        $facet: {
-          departures: [
-            {
-              $group: {
-                _id: { stop: '$departure', dayType: '$dayType', direction: '$direction' }
-              }
-            }
-          ],
-          arrivals: [
-            {
-              $group: {
-                _id: { stop: '$arrival', dayType: '$dayType', direction: '$direction' }
-              }
-            }
-          ]
-        }
-      }
-    ]);
+    const shouldQueryCampus = !dayType || !!campusMatchCondition;
+    let campusAggregated = { departures: [], arrivals: [] };
+    let campusViaStops = [];
 
-    // 경유지 수집 (셔틀버스)
-    const shuttleViaStops = await ShuttleBus.aggregate([
-      { $match: matchStage },
-      { $unwind: '$viaStops' },
-      {
-        $group: {
-          _id: { stop: '$viaStops.name', dayType: '$dayType' }
+    if (shouldQueryCampus) {
+      const campusPipeline = [];
+      if (campusMatchCondition) campusPipeline.push({ $match: campusMatchCondition });
+      campusPipeline.push(
+        {
+          $project: {
+            dayType: 1,
+            departure: 1,
+            arrival: 1,
+            direction: 1,
+            viaStops: 1
+          }
+        },
+        {
+          $facet: {
+            departures: [
+              {
+                $group: {
+                  _id: { stop: '$departure', dayType: '$dayType', direction: '$direction' }
+                }
+              }
+            ],
+            arrivals: [
+              {
+                $group: {
+                  _id: { stop: '$arrival', dayType: '$dayType', direction: '$direction' }
+                }
+              }
+            ]
+          }
         }
-      }
-    ]);
+      );
+      const [campusAggregatedRaw] = await CampusBus.aggregate(campusPipeline);
+      campusAggregated = campusAggregatedRaw || { departures: [], arrivals: [] };
 
-    // 경유지 수집 (통학버스)
-    const campusViaStops = await CampusBus.aggregate([
-      { $match: matchStage },
-      { $unwind: '$viaStops' },
-      {
-        $group: {
-          _id: { stop: '$viaStops.name', dayType: '$dayType', direction: '$direction' }
+      const campusViaPipeline = [];
+      if (campusMatchCondition) campusViaPipeline.push({ $match: campusMatchCondition });
+      campusViaPipeline.push(
+        { $unwind: '$viaStops' },
+        {
+          $group: {
+            _id: { stop: '$viaStops.name', dayType: '$dayType', direction: '$direction' }
+          }
         }
-      }
-    ]);
+      );
+      campusViaStops = await CampusBus.aggregate(campusViaPipeline);
+    }
 
     // 정류장 맵 생성
     const stopMap = new Map();
@@ -207,7 +302,9 @@ exports.getAllStops = async (req, res) => {
     res.json({
       total: stops.length,
       filters: {
-        dayType: dayType || null
+        dayType: normalizedDayTypes.display
+          ? normalizedDayTypes.display.join(',')
+          : null
       },
       stops
     });

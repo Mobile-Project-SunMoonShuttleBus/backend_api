@@ -16,7 +16,14 @@ const campusBusCrawler = require('../services/campusBusCrawlerService');
  *         name: dayType
  *         schema:
  *           type: string
- *         description: 요일 필터. 쉼표로 여러 개 가능. 예시 - 월~목,금요일
+ *         description: |
+ *           요일 필터 (쉼표로 여러 개 가능).
+ *           
+ *           입력 가능 값:
+ *           - `월~목`
+ *           - `금요일`
+ *           
+ *           값을 비워두면 전체 요일을 조회합니다.
  *         example: "월~목"
  *       - in: query
  *         name: departure
@@ -88,8 +95,15 @@ router.get('/schedules', campusController.getCampusSchedules);
  *         name: dayType
  *         schema:
  *           type: string
- *         description: 요일 필터 (쉼표로 여러 개 가능)
- *         example: "월~목"
+ *         description: |
+ *           요일 필터 (쉼표로 여러 개 가능).
+ *           
+ *           입력 가능 값:
+ *           - `월~목`
+ *           - `금요일`
+ *           
+ *           값을 비워두면 전체 요일을 조회합니다.
+ *         example: "금요일"
  *     responses:
  *       200:
  *         description: 메타 정보 조회 성공
@@ -112,7 +126,14 @@ router.get('/schedules/meta', campusController.getCampusScheduleMeta);
  *         name: dayType
  *         schema:
  *           type: string
- *         description: 요일 필터
+ *         description: |
+ *           요일 필터 (쉼표로 여러 개 가능).
+ *           
+ *           입력 가능 값:
+ *           - `월~목`
+ *           - `금요일`
+ *           
+ *           값을 비워두면 전체 요일을 조회합니다.
  *         example: "월~목"
  *     responses:
  *       200:

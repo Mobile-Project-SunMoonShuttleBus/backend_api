@@ -21,7 +21,15 @@ const busScheduleService = require('../services/busScheduleService');
  *         name: dayType
  *         schema:
  *           type: string
- *         description: 요일 필터
+ *         description: |
+ *           요일 필터.
+ *           
+ *           입력 가능 값:
+ *           - `평일`
+ *           - `토요일/공휴일`
+ *           - `일요일`
+ *           
+ *           값을 비워두면 전체 요일을 조회합니다.
  *     responses:
  *       200:
  *         description: 셔틀 노선 목록
@@ -64,7 +72,15 @@ router.get('/route/:routeId', shuttleController.getShuttleRoute);
  *         name: dayType
  *         schema:
  *           type: string
- *         description: 요일 필터. 쉼표로 여러 개 가능. 예시 - 평일,토요일/공휴일
+ *         description: |
+ *           요일 필터 (쉼표로 여러 개 가능).
+ *           
+ *           입력 가능 값:
+ *           - `평일`
+ *           - `토요일/공휴일`
+ *           - `일요일`
+ *           
+ *           값을 비워두면 전체 요일을 조회합니다.
  *         example: "평일"
  *       - in: query
  *         name: departure
@@ -172,8 +188,16 @@ router.get('/schedules', shuttleController.getShuttleSchedules);
  *         name: dayType
  *         schema:
  *           type: string
- *         description: 요일 필터 (쉼표로 여러 개 가능)
- *         example: "평일"
+ *         description: |
+ *           요일 필터 (쉼표로 여러 개 가능).
+ *           
+ *           입력 가능 값:
+ *           - `평일`
+ *           - `토요일/공휴일`
+ *           - `일요일`
+ *           
+ *           값을 비워두면 전체 요일을 조회합니다.
+ *         example: "토요일/공휴일"
  *     responses:
  *       200:
  *         description: 메타 정보 조회 성공
@@ -230,8 +254,16 @@ router.get('/schedules/meta', shuttleController.getShuttleScheduleMeta);
  *         name: dayType
  *         schema:
  *           type: string
- *         description: 요일 필터
- *         example: "평일"
+ *         description: |
+ *           요일 필터.
+ *           
+ *           입력 가능 값:
+ *           - `평일`
+ *           - `토요일/공휴일`
+ *           - `일요일`
+ *           
+ *           값을 비워두면 전체 요일을 조회합니다.
+ *         example: "일요일"
  *     responses:
  *       200:
  *         description: 정류장 목록 조회 성공

@@ -6,13 +6,78 @@ const mergeRequestParams = (req) => ({
   ...(req.query || {})
 });
 
+const SHUTTLE_DAY_TYPE_GROUPS = [
+  {
+    display: '평일',
+    matchValues: ['평일'],
+    aliases: ['평일', '주중']
+  },
+  {
+    display: '토요일/공휴일',
+    matchValues: ['토요일/공휴일'],
+    aliases: ['토요일/공휴일', '토요일', '공휴일', '주말']
+  },
+  {
+    display: '일요일',
+    matchValues: ['일요일', '토요일/공휴일'],
+    aliases: ['일요일', '일']
+  }
+];
+
+const buildDayTypeMatchStage = (dayTypes) => {
+  if (!dayTypes || dayTypes.length === 0) return null;
+  if (dayTypes.length === 1) return { dayType: dayTypes[0] };
+  return { dayType: { $in: dayTypes } };
+};
+
+const normalizeShuttleDayTypes = (raw) => {
+  if (!raw) return null;
+
+  const displaySet = new Set();
+  const matchSet = new Set();
+
+  String(raw)
+    .split(',')
+    .map((token) => token && token.trim())
+    .filter(Boolean)
+    .forEach((token) => {
+      const group = SHUTTLE_DAY_TYPE_GROUPS.find(({ display, aliases }) =>
+        [display, ...(aliases || [])].includes(token)
+      );
+
+      if (group) {
+        displaySet.add(group.display);
+        group.matchValues.forEach((value) => matchSet.add(value));
+      } else {
+        displaySet.add(token);
+        matchSet.add(token);
+      }
+    });
+
+  if (displaySet.size === 0) return null;
+
+  return {
+    display: Array.from(displaySet),
+    match: Array.from(matchSet)
+  };
+};
+
 // 셔틀정보 전체 조회
 exports.getShuttleRoutes = async (req, res) => {
   try {
     const { busType, dayType } = mergeRequestParams(req);
+    const normalizedDayTypes = normalizeShuttleDayTypes(dayType);
     const filter = {};
     if (busType) filter.busType = busType;
-    if (dayType) filter.dayType = dayType;
+    if (normalizedDayTypes?.match?.length) {
+      if (normalizedDayTypes.match.length === 1) {
+        filter.dayType = normalizedDayTypes.match[0];
+      } else {
+        filter.dayType = { $in: normalizedDayTypes.match };
+      }
+    } else if (dayType) {
+      filter.dayType = dayType;
+    }
     const list = await ShuttleRoute.find(filter);
     res.json(list);
   } catch (e) {
@@ -50,8 +115,15 @@ exports.getShuttleSchedules = async (req, res) => {
     const filter = {};
     
     // 여러 요일 동시 조회 지원
-    if (dayType) {
-      const dayTypes = dayType.split(',').map(d => d.trim());
+    const normalizedDayTypes = normalizeShuttleDayTypes(dayType);
+    if (normalizedDayTypes?.match?.length) {
+      if (normalizedDayTypes.match.length === 1) {
+        filter.dayType = normalizedDayTypes.match[0];
+      } else {
+        filter.dayType = { $in: normalizedDayTypes.match };
+      }
+    } else if (dayType) {
+      const dayTypes = dayType.split(',').map((d) => d.trim());
       if (dayTypes.length === 1) {
         filter.dayType = dayTypes[0];
       } else {
@@ -122,7 +194,9 @@ exports.getShuttleSchedules = async (req, res) => {
       page: pageSize > 0 ? pageNumber : null,
       limit: pageSize > 0 ? pageSize : null,
       filters: {
-        dayType: dayType || null,
+        dayType: normalizedDayTypes?.display
+          ? normalizedDayTypes.display.join(',')
+          : (dayType || null),
         departure: departure || null,
         arrival: arrival || null,
         startTime: startTime || null,
@@ -144,13 +218,13 @@ exports.getShuttleSchedules = async (req, res) => {
 exports.getShuttleScheduleMeta = async (req, res) => {
   try {
     const { dayType } = mergeRequestParams(req);
-    const dayTypeFilter = dayType
-      ? Array.from(new Set(dayType.split(',').map((d) => d.trim()).filter(Boolean)))
-      : null;
+    const normalizedDayTypes = normalizeShuttleDayTypes(dayType);
+    const dayTypeFilter = normalizedDayTypes?.match || null;
 
     const matchStages = [];
     if (dayTypeFilter && dayTypeFilter.length > 0) {
-      matchStages.push({ $match: { dayType: { $in: dayTypeFilter } } });
+      const matchCondition = buildDayTypeMatchStage(dayTypeFilter);
+      if (matchCondition) matchStages.push({ $match: matchCondition });
     }
 
     const distinctDayTypes = dayTypeFilter && dayTypeFilter.length > 0
@@ -199,12 +273,12 @@ exports.getShuttleScheduleMeta = async (req, res) => {
 exports.getShuttleStops = async (req, res) => {
   try {
     const { dayType } = mergeRequestParams(req);
+    const normalizedDayTypes = normalizeShuttleDayTypes(dayType);
+    const matchCondition = buildDayTypeMatchStage(normalizedDayTypes?.match);
 
-    const matchStage = {};
-    if (dayType) matchStage.dayType = dayType;
-
-    const [aggregated] = await ShuttleBus.aggregate([
-      { $match: matchStage },
+    const shuttlePipeline = [];
+    if (matchCondition) shuttlePipeline.push({ $match: matchCondition });
+    shuttlePipeline.push(
       {
         $project: {
           dayType: 1,
@@ -231,7 +305,10 @@ exports.getShuttleStops = async (req, res) => {
           ]
         }
       }
-    ]);
+    );
+
+    const [aggregatedRaw] = await ShuttleBus.aggregate(shuttlePipeline);
+    const aggregated = aggregatedRaw || { departures: [], arrivals: [] };
 
     const stopMap = new Map();
 
@@ -260,15 +337,17 @@ exports.getShuttleStops = async (req, res) => {
     });
 
     // 경유지 수집
-    const viaStopsData = await ShuttleBus.aggregate([
-      { $match: matchStage },
+    const viaStopsPipeline = [];
+    if (matchCondition) viaStopsPipeline.push({ $match: matchCondition });
+    viaStopsPipeline.push(
       { $unwind: '$viaStops' },
       {
         $group: {
           _id: { stop: '$viaStops.name', dayType: '$dayType' }
         }
       }
-    ]);
+    );
+    const viaStopsData = await ShuttleBus.aggregate(viaStopsPipeline);
 
     viaStopsData.forEach(({ _id }) => {
       if (_id.stop) {
@@ -291,7 +370,9 @@ exports.getShuttleStops = async (req, res) => {
     res.json({
       total: stops.length,
       filters: {
-        dayType: dayType || null
+        dayType: normalizedDayTypes?.display
+          ? normalizedDayTypes.display.join(',')
+          : (dayType || null)
       },
       stops
     });
