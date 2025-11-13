@@ -1,12 +1,22 @@
 FROM node:20-alpine
 
+# 보안: non-root user 사용
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S nodejs -u 1001
+
 WORKDIR /home/node/app
 
 COPY package*.json ./
 
-RUN npm install
+RUN npm install && \
+    chown -R nodejs:nodejs /home/node/app
 
 COPY . .
+
+# 소유권 변경
+RUN chown -R nodejs:nodejs /home/node/app
+
+USER nodejs
 
 EXPOSE $PORT
 

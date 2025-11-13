@@ -14,6 +14,28 @@ services:
       - bus_api
     depends_on:
       - database
+    # 보안 설정: 호스트 시스템 접근 차단
+    # read_only: true  # 로그 파일 쓰기가 필요하면 주석 처리
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    tmpfs:
+      - /tmp
+      - /var/tmp
+      - /run
+    restart: unless-stopped
+    # 리소스 제한
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
   
   database:
     image: mongo:latest
@@ -25,6 +47,19 @@ services:
       - mongo_data:/data/db
     networks:
       - bus_api
+    # 보안 설정 (MongoDB는 파일 시스템 접근 필요)
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    # 리소스 제한
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
   
 networks:
   bus_api:
