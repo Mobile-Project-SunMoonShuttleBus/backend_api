@@ -1,6 +1,7 @@
 const express = require('express');
 require('dotenv').config();
 const connectDB = require('./config/database');
+const { swaggerSetup } = require('./config/swagger');
 
 const app = express();
 const PORT = process.env.SERVER_PORT || 8080;
@@ -13,9 +14,14 @@ app.use(express.urlencoded({ extended: true }));
 // 데이터베이스 연결
 connectDB();
 
+// Swagger 설정 (라우트 설정 전에 추가)
+swaggerSetup(app);
+
 // 라우트 설정
 app.use('/api/auth', require('./routes/authRoutes'));
-app.use('/api/bus', require('./routes/busRoutes'));
+app.use('/api/shuttle', require('./routes/shuttleRoutes'));
+app.use('/api/campus', require('./routes/campusRoutes'));
+app.use('/api/stops', require('./routes/stopRoutes'));
 
 // 루트 경로
 app.get('/', (req, res) => {
