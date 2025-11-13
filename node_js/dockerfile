@@ -6,15 +6,11 @@ RUN addgroup -g 1001 -S nodejs && \
 
 WORKDIR /home/node/app
 
-COPY package*.json ./
+COPY --chown=nodejs:nodejs package*.json ./
 
-RUN npm install && \
-    chown -R nodejs:nodejs /home/node/app
+RUN npm install
 
-COPY . .
-
-# 소유권 변경
-RUN chown -R nodejs:nodejs /home/node/app
+COPY --chown=nodejs:nodejs . .
 
 USER nodejs
 
