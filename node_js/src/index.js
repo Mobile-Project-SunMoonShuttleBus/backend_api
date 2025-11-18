@@ -8,6 +8,18 @@ const PORT = process.env.SERVER_PORT || 8080;
 const HOST = '0.0.0.0';
 const { runInitialCrawlers } = require('./services/initialDataLoader');
 
+// CORS 설정 (프론트엔드 및 외부 IP에서 API 접근 허용)
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(200);
+  } else {
+    next();
+  }
+});
+
 // 미들웨어
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));

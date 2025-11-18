@@ -109,7 +109,14 @@ const swaggerSpec = swaggerJsdoc(options);
 
 const swaggerSetup = (app) => {
   app.use('/api', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
-    customSiteTitle: '셔틀버스 API 문서'
+    customSiteTitle: '셔틀버스 API 문서',
+    swaggerOptions: {
+      persistAuthorization: true,
+      tryItOutEnabled: true,
+      supportedSubmitMethods: ['get', 'post', 'put', 'delete', 'patch'],
+      validatorUrl: null,
+      docExpansion: 'list'
+    }
   }));
 };
 
