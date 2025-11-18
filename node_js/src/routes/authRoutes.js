@@ -112,16 +112,16 @@ router.post('/logout', authToken, logout);
  *           schema:
  *             type: object
  *             required:
- *               - studentId
- *               - portalPassword
+ *               - schoolId
+ *               - schoolPassword
  *             properties:
- *               studentId:
+ *               schoolId:
  *                 type: string
- *                 description: 학생 포털 ID
+ *                 description: 학교 포털 ID (학번)
  *                 example: "20251234"
- *               portalPassword:
+ *               schoolPassword:
  *                 type: string
- *                 description: 포털 비밀번호
+ *                 description: 학교 포털 비밀번호
  *                 example: "포털비밀번호"
  *     responses:
  *       200:
