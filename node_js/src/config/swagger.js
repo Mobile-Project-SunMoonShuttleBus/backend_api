@@ -1,6 +1,34 @@
 const swaggerJsdoc = require('swagger-jsdoc');
 const swaggerUi = require('swagger-ui-express');
 
+// 서버 URL 자동 감지 또는 환경 변수 사용
+const getServerUrl = () => {
+  // 환경 변수가 설정되어 있으면 사용
+  if (process.env.API_BASE_URL) {
+    return process.env.API_BASE_URL;
+  }
+  
+  // 상대 경로를 기본값으로 사용 (브라우저가 자동으로 현재 호스트 사용)
+  return '/api';
+};
+
+const serverUrl = getServerUrl();
+const servers = [];
+
+// 상대 경로 추가 (항상 포함)
+servers.push({
+  url: '/api',
+  description: '현재 서버 (상대 경로)'
+});
+
+// 절대 경로가 상대 경로가 아닌 경우에만 추가
+if (serverUrl !== '/api' && serverUrl.startsWith('http')) {
+  servers.push({
+    url: serverUrl,
+    description: '개발 서버 (절대 경로)'
+  });
+}
+
 const options = {
   definition: {
     openapi: '3.0.0',
@@ -12,12 +40,7 @@ const options = {
         name: 'API Support'
       }
     },
-    servers: [
-      {
-        url: process.env.API_BASE_URL || 'http://localhost:8080/api',
-        description: '개발 서버'
-      }
-    ],
+    servers: servers,
     components: {
       securitySchemes: {
         bearerAuth: {
