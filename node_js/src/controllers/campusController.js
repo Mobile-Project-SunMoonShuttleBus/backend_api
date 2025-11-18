@@ -332,14 +332,33 @@ exports.getCampusStops = async (req, res) => {
       }))
       .sort((a, b) => a.name.localeCompare(b.name, 'ko'));
 
+    // 정류장 좌표 정보 조회
+    const { getMultipleStopCoordinates } = require('../services/busStopCoordinateService');
+    const stopNames = stops.map(s => s.name);
+    const coordinatesMap = await getMultipleStopCoordinates(stopNames);
+
+    // 좌표 정보 추가
+    const stopsWithCoordinates = stops.map(stop => {
+      const coordinates = coordinatesMap[stop.name];
+      return {
+        ...stop,
+        coordinates: coordinates ? {
+          latitude: coordinates.latitude,
+          longitude: coordinates.longitude,
+          naverPlaceId: coordinates.naverPlaceId || null,
+          address: coordinates.address || null
+        } : null
+      };
+    });
+
     res.json({
-      total: stops.length,
+      total: stopsWithCoordinates.length,
       filters: {
         dayType: normalizedDayTypes?.display
           ? normalizedDayTypes.display.join(',')
           : null
       },
-      stops
+      stops: stopsWithCoordinates
     });
   } catch (e) {
     res.status(500).json({ message: '정류장 목록 조회 오류', error: e.message });

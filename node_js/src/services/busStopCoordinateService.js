@@ -1,0 +1,210 @@
+const BusStop = require('../models/BusStop');
+const ShuttleBus = require('../models/ShuttleBus');
+const CampusBus = require('../models/CampusBus');
+const { searchStopCoordinates } = require('./naverMapService');
+const { transformStopName } = require('./stopNameTransformer');
+
+// 크롤러 실행 후 정류장 목록 추출
+async function extractAllStopNames() {
+  const stopNames = new Set();
+
+  // 셔틀버스 정류장 추출
+  const shuttleBuses = await ShuttleBus.find({}, { departure: 1, arrival: 1, viaStops: 1 });
+  shuttleBuses.forEach(bus => {
+    if (bus.departure) stopNames.add(bus.departure);
+    if (bus.arrival) stopNames.add(bus.arrival);
+    if (bus.viaStops && Array.isArray(bus.viaStops)) {
+      bus.viaStops.forEach(via => {
+        if (via.name) stopNames.add(via.name);
+      });
+    }
+  });
+
+  // 통학버스 정류장 추출
+  const campusBuses = await CampusBus.find({}, { departure: 1, arrival: 1, viaStops: 1 });
+  campusBuses.forEach(bus => {
+    if (bus.departure) stopNames.add(bus.departure);
+    if (bus.arrival) stopNames.add(bus.arrival);
+    if (bus.viaStops && Array.isArray(bus.viaStops)) {
+      bus.viaStops.forEach(via => {
+        if (via.name) stopNames.add(via.name);
+      });
+    }
+  });
+
+  return Array.from(stopNames);
+}
+
+// 정류장 좌표 조회 및 저장 (DB에 없는 정류장만)
+async function updateStopCoordinates() {
+  try {
+    // 네이버 API 키 확인
+    const path = require('path');
+    require('dotenv').config({ path: path.join(__dirname, '../../.env') });
+    const NAVER_API_KEY_ID = process.env.NAVER_CLIENT_ID;
+    const NAVER_API_KEY = process.env.NAVER_CLIENT_SECRET;
+    
+    if (!NAVER_API_KEY_ID || !NAVER_API_KEY) {
+      console.warn('네이버 API 키가 설정되지 않아 정류장 좌표 업데이트를 건너뜁니다.');
+      return {
+        success: false,
+        error: '네이버 API 키가 설정되지 않았습니다.',
+        skipped: true
+      };
+    }
+
+    console.log('정류장 좌표 업데이트 시작...');
+    
+    // 모든 정류장 이름 추출
+    const stopNames = await extractAllStopNames();
+    console.log(`총 ${stopNames.length}개 정류장 발견`);
+
+    // DB에 이미 있는 정류장 조회
+    const existingStops = await BusStop.find({ name: { $in: stopNames } });
+    const existingStopNames = new Set(existingStops.map(stop => stop.name));
+
+    // DB에 없는 정류장만 필터링
+    const newStopNames = stopNames.filter(name => !existingStopNames.has(name));
+    console.log(`신규 정류장 ${newStopNames.length}개 발견 (좌표 조회 필요)`);
+
+    let successCount = 0;
+    let failCount = 0;
+    const failedStops = [];
+
+    // 신규 정류장 좌표 조회 및 저장
+    for (const stopName of newStopNames) {
+      try {
+        let result = null;
+        let found = false;
+        
+        // 원본 이름으로 먼저 시도
+        console.log(`좌표 조회 중: ${stopName}`);
+        result = await searchStopCoordinates(stopName);
+
+        // 검색 실패 시 변환된 이름으로 재시도
+        if (!result.success) {
+          const transformedNames = transformStopName(stopName);
+          
+          // 원본 이름은 이미 시도했으므로 제외하고 변환된 이름들로 재시도
+          for (const transformedName of transformedNames.slice(1)) {
+            console.log(`  → 변환된 이름으로 재시도: ${transformedName}`);
+            result = await searchStopCoordinates(transformedName);
+            
+            if (result.success) {
+              console.log(`  ✓ 변환된 이름 "${transformedName}"으로 좌표 조회 성공`);
+              found = true;
+              break;
+            }
+            
+            // 네이버 API 호출 제한을 위한 딜레이
+            await new Promise(resolve => setTimeout(resolve, 100));
+          }
+        } else {
+          found = true;
+        }
+
+        if (found && result.success) {
+          await BusStop.create({
+            name: stopName, // 원본 이름으로 저장
+            latitude: result.latitude,
+            longitude: result.longitude,
+            naverPlaceId: result.naverPlaceId,
+            naverAddress: result.address,
+            lastUpdated: new Date()
+          });
+          successCount++;
+          console.log(`✓ ${stopName} 좌표 저장 완료 (${result.latitude}, ${result.longitude})`);
+        } else {
+          console.warn(`✗ ${stopName} 좌표 조회 실패: ${result.error}`);
+          failCount++;
+          failedStops.push({ name: stopName, error: result.error });
+        }
+
+        // 네이버 API 호출 제한을 위한 딜레이 (초당 10회 제한)
+        await new Promise(resolve => setTimeout(resolve, 100));
+      } catch (error) {
+        console.error(`${stopName} 처리 중 오류:`, error.message);
+        failCount++;
+        failedStops.push({ name: stopName, error: error.message });
+      }
+    }
+
+    console.log(`\n정류장 좌표 업데이트 완료:`);
+    console.log(`  - 성공: ${successCount}개`);
+    console.log(`  - 실패: ${failCount}개`);
+    if (failedStops.length > 0) {
+      console.log(`  - 실패한 정류장:`, failedStops.map(s => s.name).join(', '));
+    }
+
+    return {
+      success: true,
+      total: stopNames.length,
+      existing: existingStops.length,
+      new: newStopNames.length,
+      successCount,
+      failCount,
+      failedStops
+    };
+  } catch (error) {
+    console.error('정류장 좌표 업데이트 실패:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+
+// 특정 정류장 좌표 조회 (DB에서)
+async function getStopCoordinates(stopName) {
+  try {
+    const stop = await BusStop.findOne({ name: stopName });
+    if (stop) {
+      return {
+        success: true,
+        latitude: stop.latitude,
+        longitude: stop.longitude,
+        naverPlaceId: stop.naverPlaceId,
+        address: stop.naverAddress
+      };
+    }
+    return {
+      success: false,
+      error: '정류장을 찾을 수 없습니다.'
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+
+// 여러 정류장 좌표 일괄 조회 (DB에서)
+async function getMultipleStopCoordinates(stopNames) {
+  try {
+    const stops = await BusStop.find({ name: { $in: stopNames } });
+    const coordinatesMap = {};
+
+    stops.forEach(stop => {
+      coordinatesMap[stop.name] = {
+        latitude: stop.latitude,
+        longitude: stop.longitude,
+        naverPlaceId: stop.naverPlaceId,
+        address: stop.naverAddress
+      };
+    });
+
+    return coordinatesMap;
+  } catch (error) {
+    console.error('정류장 좌표 일괄 조회 실패:', error);
+    return {};
+  }
+}
+
+module.exports = {
+  updateStopCoordinates,
+  getStopCoordinates,
+  getMultipleStopCoordinates,
+  extractAllStopNames
+};
+

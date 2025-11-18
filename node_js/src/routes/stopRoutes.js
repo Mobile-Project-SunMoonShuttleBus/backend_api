@@ -120,6 +120,28 @@ const stopController = require('../controllers/stopController');
  *                               type: string
  *                               enum: [등교, 하교]
  *                             description: 통학버스 방향
+ *                       coordinates:
+ *                         type: object
+ *                         nullable: true
+ *                         description: 정류장 좌표 정보 (네이버 지도 API 연동용)
+ *                         properties:
+ *                           latitude:
+ *                             type: number
+ *                             description: 위도 (WGS84 좌표계)
+ *                             example: 36.773844
+ *                           longitude:
+ *                             type: number
+ *                             description: 경도 (WGS84 좌표계)
+ *                             example: 127.053849
+ *                           naverPlaceId:
+ *                             type: string
+ *                             nullable: true
+ *                             description: 네이버 장소 ID (현재 미사용)
+ *                           address:
+ *                             type: string
+ *                             nullable: true
+ *                             description: 정류장 주소
+ *                             example: "충청남도 아산시 배방읍"
  *       500:
  *         description: 서버 오류
  */

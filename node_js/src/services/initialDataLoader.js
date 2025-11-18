@@ -3,6 +3,7 @@ require('dotenv').config({ path: path.join(__dirname, '../../.env') });
 const connectDB = require('../config/database');
 const { runManually: runShuttleManually } = require('./shuttleBusScheduler');
 const campusBusCrawler = require('./campusBusCrawlerService');
+const { updateStopCoordinates } = require('./busStopCoordinateService');
 
 let hasRun = false;
 
@@ -43,6 +44,20 @@ async function runInitialCrawlers() {
       }
     } catch (error) {
       console.error('초기 통학 크롤링 실행 중 오류:', error);
+    }
+
+    // 정류장 좌표 자동 조회 및 저장
+    try {
+      const coordinateResult = await updateStopCoordinates();
+      if (coordinateResult?.success) {
+        console.log(
+          `정류장 좌표 업데이트 완료: 총 ${coordinateResult.total}개, 기존 ${coordinateResult.existing}개, 신규 ${coordinateResult.new}개, 성공 ${coordinateResult.successCount}개`
+        );
+      } else if (coordinateResult) {
+        console.warn('정류장 좌표 업데이트 실패:', coordinateResult.error);
+      }
+    } catch (error) {
+      console.error('정류장 좌표 업데이트 실행 중 오류:', error);
     }
 
     console.log('초기 크롤링 실행: 완료');

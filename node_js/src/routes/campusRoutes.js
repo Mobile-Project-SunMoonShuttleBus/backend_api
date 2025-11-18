@@ -138,6 +138,65 @@ router.get('/schedules/meta', campusController.getCampusScheduleMeta);
  *     responses:
  *       200:
  *         description: 정류장 목록 조회 성공
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 total:
+ *                   type: integer
+ *                   description: 전체 정류장 개수
+ *                 filters:
+ *                   type: object
+ *                   properties:
+ *                     dayType:
+ *                       type: string
+ *                       nullable: true
+ *                 stops:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       name:
+ *                         type: string
+ *                         description: 정류장 이름
+ *                       dayTypes:
+ *                         type: array
+ *                         items:
+ *                           type: string
+ *                         description: 운행 요일 목록
+ *                       operatesAsDeparture:
+ *                         type: array
+ *                         items:
+ *                           type: string
+ *                         description: 출발지로 사용되는 요일 목록
+ *                       operatesAsArrival:
+ *                         type: array
+ *                         items:
+ *                           type: string
+ *                         description: 도착지로 사용되는 요일 목록
+ *                       coordinates:
+ *                         type: object
+ *                         nullable: true
+ *                         description: 정류장 좌표 정보 (네이버 지도 API 연동용)
+ *                         properties:
+ *                           latitude:
+ *                             type: number
+ *                             description: 위도 (WGS84 좌표계)
+ *                             example: 36.790013
+ *                           longitude:
+ *                             type: number
+ *                             description: 경도 (WGS84 좌표계)
+ *                             example: 127.002474
+ *                           naverPlaceId:
+ *                             type: string
+ *                             nullable: true
+ *                             description: 네이버 장소 ID (현재 미사용)
+ *                           address:
+ *                             type: string
+ *                             nullable: true
+ *                             description: 정류장 주소
+ *                             example: "충청남도 아산시"
  *       500:
  *         description: 서버 오류
  */

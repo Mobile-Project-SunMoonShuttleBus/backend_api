@@ -114,6 +114,8 @@ const initializeDatabase = async () => {
     require('../models/Timetable');
     require('../models/ShuttleRoute');
     require('../models/ShuttleBus');
+    require('../models/CampusBus');
+    require('../models/BusStop');
     require('../models/CrowdReport');
     require('../models/TokenBlacklist');
     
@@ -123,6 +125,8 @@ const initializeDatabase = async () => {
     const Timetable = mongoose.model('Timetable');
     const ShuttleRoute = mongoose.model('ShuttleRoute');
     const ShuttleBus = mongoose.model('ShuttleBus');
+    const CampusBus = mongoose.model('CampusBus');
+    const BusStop = mongoose.model('BusStop');
     const CrowdReport = mongoose.model('CrowdReport');
     const TokenBlacklist = mongoose.model('TokenBlacklist');
     
@@ -132,6 +136,8 @@ const initializeDatabase = async () => {
     await Timetable.createIndexes();
     await ShuttleRoute.createIndexes();
     await ShuttleBus.createIndexes();
+    await CampusBus.createIndexes();
+    await BusStop.createIndexes();
     await CrowdReport.createIndexes();
     await TokenBlacklist.createIndexes();
     
