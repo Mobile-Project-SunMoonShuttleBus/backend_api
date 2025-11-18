@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const stopController = require('../controllers/stopController');
+const { authToken } = require('../middleware/auth');
 
 /**
  * @swagger
@@ -145,7 +146,7 @@ const stopController = require('../controllers/stopController');
  *       500:
  *         description: 서버 오류
  */
-router.get('/', stopController.getAllStops);
+router.get('/', authToken, stopController.getAllStops);
 
 module.exports = router;
 

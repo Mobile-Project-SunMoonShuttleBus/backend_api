@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const campusController = require('../controllers/campusController');
 const campusBusCrawler = require('../services/campusBusCrawlerService');
+const { authToken } = require('../middleware/auth');
 
 /**
  * @swagger
@@ -79,7 +80,7 @@ const campusBusCrawler = require('../services/campusBusCrawlerService');
  *       500:
  *         description: 서버 오류
  */
-router.get('/schedules', campusController.getCampusSchedules);
+router.get('/schedules', authToken, campusController.getCampusSchedules);
 
 /**
  * @swagger
@@ -110,7 +111,7 @@ router.get('/schedules', campusController.getCampusSchedules);
  *       500:
  *         description: 서버 오류
  */
-router.get('/schedules/meta', campusController.getCampusScheduleMeta);
+router.get('/schedules/meta', authToken, campusController.getCampusScheduleMeta);
 
 /**
  * @swagger
@@ -200,7 +201,7 @@ router.get('/schedules/meta', campusController.getCampusScheduleMeta);
  *       500:
  *         description: 서버 오류
  */
-router.get('/stops', campusController.getCampusStops);
+router.get('/stops', authToken, campusController.getCampusStops);
 
 /**
  * @swagger
@@ -217,7 +218,7 @@ router.get('/stops', campusController.getCampusStops);
  *       500:
  *         description: 업데이트 실패
  */
-router.post('/update-schedule', async (req, res) => {
+router.post('/update-schedule', authToken, async (req, res) => {
   try {
     const result = await campusBusCrawler.crawlAndSave();
     res.json({ message: '통학버스 시간표 업데이트 완료', result });

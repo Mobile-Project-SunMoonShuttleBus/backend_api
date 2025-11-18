@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const shuttleController = require('../controllers/shuttleController');
 const busScheduleService = require('../services/busScheduleService');
+const { authToken } = require('../middleware/auth');
 
 /**
  * @swagger
@@ -34,7 +35,7 @@ const busScheduleService = require('../services/busScheduleService');
  *       200:
  *         description: 셔틀 노선 목록
  */
-router.get('/routes', shuttleController.getShuttleRoutes);
+router.get('/routes', authToken, shuttleController.getShuttleRoutes);
 
 /**
  * @swagger
@@ -57,7 +58,7 @@ router.get('/routes', shuttleController.getShuttleRoutes);
  *       404:
  *         description: 노선을 찾을 수 없음
  */
-router.get('/route/:routeId', shuttleController.getShuttleRoute);
+router.get('/route/:routeId', authToken, shuttleController.getShuttleRoute);
 
 /**
  * @swagger
@@ -172,7 +173,7 @@ router.get('/route/:routeId', shuttleController.getShuttleRoute);
  *       500:
  *         description: 서버 오류
  */
-router.get('/schedules', shuttleController.getShuttleSchedules);
+router.get('/schedules', authToken, shuttleController.getShuttleSchedules);
 
 /**
  * @swagger
@@ -238,7 +239,7 @@ router.get('/schedules', shuttleController.getShuttleSchedules);
  *       500:
  *         description: 서버 오류
  */
-router.get('/schedules/meta', shuttleController.getShuttleScheduleMeta);
+router.get('/schedules/meta', authToken, shuttleController.getShuttleScheduleMeta);
 
 /**
  * @swagger
@@ -329,7 +330,7 @@ router.get('/schedules/meta', shuttleController.getShuttleScheduleMeta);
  *       500:
  *         description: 서버 오류
  */
-router.get('/stops', shuttleController.getShuttleStops);
+router.get('/stops', authToken, shuttleController.getShuttleStops);
 
 /**
  * @swagger
@@ -346,7 +347,7 @@ router.get('/stops', shuttleController.getShuttleStops);
  *       500:
  *         description: 업데이트 실패
  */
-router.post('/update-schedule', async (req, res) => {
+router.post('/update-schedule', authToken, async (req, res) => {
   try {
     const result = await busScheduleService.updateAllSchedules();
     res.json({ message: '시간표 업데이트 완료', result });

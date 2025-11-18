@@ -160,7 +160,12 @@ exports.getCampusSchedules = async (req, res) => {
       data: schedules
     });
   } catch (e) {
-    res.status(500).json({ message: '시간표 조회 오류', error: e.message });
+    console.error('통학버스 시간표 조회 오류:', e);
+    res.status(500).json({ 
+      message: '통학버스 시간표 조회 중 오류가 발생했습니다.',
+      error: e.message,
+      details: process.env.NODE_ENV === 'development' ? e.stack : undefined
+    });
   }
 };
 
@@ -224,7 +229,12 @@ exports.getCampusScheduleMeta = async (req, res) => {
       departures: result
     });
   } catch (e) {
-    res.status(500).json({ message: '시간표 메타 조회 오류', error: e.message });
+    console.error('통학버스 시간표 메타 조회 오류:', e);
+    res.status(500).json({ 
+      message: '통학버스 시간표 메타 정보 조회 중 오류가 발생했습니다.',
+      error: e.message,
+      details: process.env.NODE_ENV === 'development' ? e.stack : undefined
+    });
   }
 };
 
@@ -361,7 +371,12 @@ exports.getCampusStops = async (req, res) => {
       stops: stopsWithCoordinates
     });
   } catch (e) {
-    res.status(500).json({ message: '정류장 목록 조회 오류', error: e.message });
+    console.error('통학버스 정류장 목록 조회 오류:', e);
+    res.status(500).json({ 
+      message: '통학버스 정류장 목록 조회 중 오류가 발생했습니다.',
+      error: e.message,
+      details: process.env.NODE_ENV === 'development' ? e.stack : undefined
+    });
   }
 };
 

@@ -81,7 +81,12 @@ exports.getShuttleRoutes = async (req, res) => {
     const list = await ShuttleRoute.find(filter);
     res.json(list);
   } catch (e) {
-    res.status(500).json({ message: '조회 오류', error: e.message });
+    console.error('셔틀 노선 조회 오류:', e);
+    res.status(500).json({ 
+      message: '셔틀 노선 조회 중 오류가 발생했습니다.',
+      error: e.message,
+      details: process.env.NODE_ENV === 'development' ? e.stack : undefined
+    });
   }
 };
 
@@ -90,10 +95,21 @@ exports.getShuttleRoute = async (req, res) => {
   try {
     const { routeId } = req.params;
     const route = await ShuttleRoute.findOne({ routeId });
-    if (!route) return res.status(404).json({ message: '셔틀정보 없음' });
+    if (!route) {
+      return res.status(404).json({ 
+        message: '셔틀 노선을 찾을 수 없습니다.',
+        error: `routeId "${routeId}"에 해당하는 셔틀 노선이 존재하지 않습니다.`,
+        routeId: routeId
+      });
+    }
     res.json(route);
   } catch (e) {
-    res.status(500).json({ message: '상세 조회 오류', error: e.message });
+    console.error('셔틀 노선 상세 조회 오류:', e);
+    res.status(500).json({ 
+      message: '셔틀 노선 상세 조회 중 오류가 발생했습니다.',
+      error: e.message,
+      details: process.env.NODE_ENV === 'development' ? e.stack : undefined
+    });
   }
 };
 
@@ -210,7 +226,12 @@ exports.getShuttleSchedules = async (req, res) => {
       data: schedules
     });
   } catch (e) {
-    res.status(500).json({ message: '시간표 조회 오류', error: e.message });
+    console.error('셔틀버스 시간표 조회 오류:', e);
+    res.status(500).json({ 
+      message: '셔틀버스 시간표 조회 중 오류가 발생했습니다.',
+      error: e.message,
+      details: process.env.NODE_ENV === 'development' ? e.stack : undefined
+    });
   }
 };
 
@@ -265,7 +286,12 @@ exports.getShuttleScheduleMeta = async (req, res) => {
       departures: result
     });
   } catch (e) {
-    res.status(500).json({ message: '시간표 메타 조회 오류', error: e.message });
+    console.error('셔틀버스 시간표 메타 조회 오류:', e);
+    res.status(500).json({ 
+      message: '셔틀버스 시간표 메타 정보 조회 중 오류가 발생했습니다.',
+      error: e.message,
+      details: process.env.NODE_ENV === 'development' ? e.stack : undefined
+    });
   }
 };
 
@@ -396,7 +422,12 @@ exports.getShuttleStops = async (req, res) => {
       stops: stopsWithCoordinates
     });
   } catch (e) {
-    res.status(500).json({ message: '정류장 목록 조회 오류', error: e.message });
+    console.error('셔틀버스 정류장 목록 조회 오류:', e);
+    res.status(500).json({ 
+      message: '셔틀버스 정류장 목록 조회 중 오류가 발생했습니다.',
+      error: e.message,
+      details: process.env.NODE_ENV === 'development' ? e.stack : undefined
+    });
   }
 };
 
