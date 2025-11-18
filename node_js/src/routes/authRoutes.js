@@ -29,10 +29,6 @@ const { authToken } = require('../middleware/auth');
  *                 type: string
  *                 description: 로그인 비밀번호
  *                 example: "P@ssw0rd!"
- *               name:
- *                 type: string
- *                 description: 사용자 이름 (선택 입력, 추후 확장용)
- *                 example: "홍길동"
  *     responses:
  *       201:
  *         description: 회원가입 성공
