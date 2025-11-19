@@ -1,4 +1,3 @@
-const ShuttleRoute = require('../models/ShuttleRoute');
 const ShuttleBus = require('../models/ShuttleBus');
 
 const mergeRequestParams = (req) => ({
@@ -62,51 +61,57 @@ const normalizeShuttleDayTypes = (raw) => {
   };
 };
 
-// 셔틀정보 전체 조회
+// 셔틀정보 전체 조회 (ShuttleBus에서 출발지/도착지 조합 추출)
 exports.getShuttleRoutes = async (req, res) => {
   try {
-    const { busType, dayType } = mergeRequestParams(req);
+    const { dayType } = mergeRequestParams(req);
     const normalizedDayTypes = normalizeShuttleDayTypes(dayType);
-    const filter = {};
-    if (busType) filter.busType = busType;
+    
+    // ShuttleBus에서 필터링
+    const busFilter = {};
     if (normalizedDayTypes?.match?.length) {
       if (normalizedDayTypes.match.length === 1) {
-        filter.dayType = normalizedDayTypes.match[0];
+        busFilter.dayType = normalizedDayTypes.match[0];
       } else {
-        filter.dayType = { $in: normalizedDayTypes.match };
+        busFilter.dayType = { $in: normalizedDayTypes.match };
       }
     } else if (dayType) {
-      filter.dayType = dayType;
+      busFilter.dayType = dayType;
     }
-    const list = await ShuttleRoute.find(filter);
-    res.json(list);
+    
+    // 출발지/도착지 조합 추출
+    const buses = await ShuttleBus.find(busFilter).select('departure arrival dayType').lean();
+    
+    // 고유한 출발지/도착지 조합 추출
+    const routeMap = new Map();
+    buses.forEach(bus => {
+      const key = `${bus.departure}-${bus.arrival}`;
+      if (!routeMap.has(key)) {
+        routeMap.set(key, {
+          routeId: key,
+          routeName: `${bus.departure} → ${bus.arrival}`,
+          departure: bus.departure,
+          arrival: bus.arrival,
+          dayTypes: new Set()
+        });
+      }
+      routeMap.get(key).dayTypes.add(bus.dayType);
+    });
+    
+    // 배열로 변환 및 dayTypes를 배열로 변환
+    const routes = Array.from(routeMap.values()).map(route => ({
+      routeId: route.routeId,
+      routeName: route.routeName,
+      departure: route.departure,
+      arrival: route.arrival,
+      dayTypes: Array.from(route.dayTypes).sort()
+    }));
+    
+    res.json(routes);
   } catch (e) {
     console.error('셔틀 노선 조회 오류:', e);
     res.status(500).json({ 
       message: '셔틀 노선 조회 중 오류가 발생했습니다.',
-      error: e.message,
-      details: process.env.NODE_ENV === 'development' ? e.stack : undefined
-    });
-  }
-};
-
-// 셔틀정보 상세 조회
-exports.getShuttleRoute = async (req, res) => {
-  try {
-    const { routeId } = req.params;
-    const route = await ShuttleRoute.findOne({ routeId });
-    if (!route) {
-      return res.status(404).json({ 
-        message: '셔틀 노선을 찾을 수 없습니다.',
-        error: `routeId "${routeId}"에 해당하는 셔틀 노선이 존재하지 않습니다.`,
-        routeId: routeId
-      });
-    }
-    res.json(route);
-  } catch (e) {
-    console.error('셔틀 노선 상세 조회 오류:', e);
-    res.status(500).json({ 
-      message: '셔틀 노선 상세 조회 중 오류가 발생했습니다.',
       error: e.message,
       details: process.env.NODE_ENV === 'development' ? e.stack : undefined
     });
@@ -179,17 +184,12 @@ exports.getShuttleSchedules = async (req, res) => {
     else if (fridayOperates === 'false') filter.fridayOperates = false;
     else if (includeFridayOff === 'false') filter.fridayOperates = true;
 
-    // 시간대 필터
-    if (startTime || endTime) {
-      filter.departureTime = {};
-      if (startTime) {
-        const [startHour, startMin] = startTime.split(':').map(Number);
-        filter.departureTime.$gte = `${String(startHour).padStart(2, '0')}:${String(startMin).padStart(2, '0')}`;
-      }
-      if (endTime) {
-        const [endHour, endMin] = endTime.split(':').map(Number);
-        filter.departureTime.$lte = `${String(endHour).padStart(2, '0')}:${String(endMin).padStart(2, '0')}`;
-      }
+    // 시간대 필터 (startTime만 사용, 해당 시간 이상의 출발시간만 반환)
+    if (startTime) {
+      const [startHour, startMin] = startTime.split(':').map(Number);
+      filter.departureTime = {
+        $gte: `${String(startHour).padStart(2, '0')}:${String(startMin).padStart(2, '0')}`
+      };
     }
 
     // 페이징 처리
@@ -215,8 +215,7 @@ exports.getShuttleSchedules = async (req, res) => {
           : (dayType || null),
         departure: departure || null,
         arrival: arrival || null,
-        startTime: startTime || null,
-        endTime: endTime || null
+        startTime: startTime || null
       },
       viaStopsSummary: schedules
         .filter(s => s.viaStops && s.viaStops.length > 0)
@@ -407,7 +406,8 @@ exports.getShuttleStops = async (req, res) => {
           latitude: coordinates.latitude,
           longitude: coordinates.longitude,
           naverPlaceId: coordinates.naverPlaceId || null,
-          address: coordinates.address || null
+          address: coordinates.address || null,
+          title: coordinates.title || null
         } : null
       };
     });

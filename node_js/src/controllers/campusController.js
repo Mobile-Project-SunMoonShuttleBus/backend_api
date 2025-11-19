@@ -13,7 +13,7 @@ const CAMPUS_DAY_TYPE_GROUPS = [
   },
   {
     display: '금요일',
-    matchValues: ['금요일', '금'],
+    matchValues: ['금요일'],
     aliases: ['금요일', '금']
   }
 ];
@@ -22,6 +22,64 @@ const buildDayTypeMatchStage = (dayTypes) => {
   if (!dayTypes || dayTypes.length === 0) return null;
   if (dayTypes.length === 1) return { dayType: dayTypes[0] };
   return { dayType: { $in: dayTypes } };
+};
+
+// 통학버스 노선 전체 조회 (CampusBus에서 출발지/도착지 조합 추출)
+exports.getCampusRoutes = async (req, res) => {
+  try {
+    const { dayType } = mergeRequestParams(req);
+    const normalizedDayTypes = normalizeCampusDayTypes(dayType);
+    
+    // CampusBus에서 필터링
+    const busFilter = {};
+    if (normalizedDayTypes?.match?.length) {
+      if (normalizedDayTypes.match.length === 1) {
+        busFilter.dayType = normalizedDayTypes.match[0];
+      } else {
+        busFilter.dayType = { $in: normalizedDayTypes.match };
+      }
+    }
+    
+    // 출발지/도착지 조합 추출
+    const buses = await CampusBus.find(busFilter).select('departure arrival dayType direction').lean();
+    
+    // 고유한 출발지/도착지 조합 추출
+    const routeMap = new Map();
+    buses.forEach(bus => {
+      const key = `${bus.departure}-${bus.arrival}`;
+      if (!routeMap.has(key)) {
+        routeMap.set(key, {
+          routeId: key,
+          routeName: `${bus.departure} → ${bus.arrival}`,
+          departure: bus.departure,
+          arrival: bus.arrival,
+          dayTypes: new Set(),
+          directions: new Set()
+        });
+      }
+      routeMap.get(key).dayTypes.add(bus.dayType);
+      routeMap.get(key).directions.add(bus.direction);
+    });
+    
+    // 배열로 변환 및 dayTypes, directions를 배열로 변환
+    const routes = Array.from(routeMap.values()).map(route => ({
+      routeId: route.routeId,
+      routeName: route.routeName,
+      departure: route.departure,
+      arrival: route.arrival,
+      dayTypes: Array.from(route.dayTypes).sort(),
+      directions: Array.from(route.directions).sort()
+    }));
+    
+    res.json(routes);
+  } catch (e) {
+    console.error('통학버스 노선 조회 오류:', e);
+    res.status(500).json({ 
+      message: '통학버스 노선 조회 중 오류가 발생했습니다.',
+      error: e.message,
+      details: process.env.NODE_ENV === 'development' ? e.stack : undefined
+    });
+  }
 };
 
 const normalizeCampusDayTypes = (raw) => {
@@ -112,17 +170,12 @@ exports.getCampusSchedules = async (req, res) => {
 
     if (direction) filter.direction = direction;
 
-    // 시간대 필터
-    if (startTime || endTime) {
-      filter.departureTime = {};
-      if (startTime) {
-        const [startHour, startMin] = startTime.split(':').map(Number);
-        filter.departureTime.$gte = `${String(startHour).padStart(2, '0')}:${String(startMin).padStart(2, '0')}`;
-      }
-      if (endTime) {
-        const [endHour, endMin] = endTime.split(':').map(Number);
-        filter.departureTime.$lte = `${String(endHour).padStart(2, '0')}:${String(endMin).padStart(2, '0')}`;
-      }
+    // 시간대 필터 (startTime만 사용, 해당 시간 이상의 출발시간만 반환)
+    if (startTime) {
+      const [startHour, startMin] = startTime.split(':').map(Number);
+      filter.departureTime = {
+        $gte: `${String(startHour).padStart(2, '0')}:${String(startMin).padStart(2, '0')}`
+      };
     }
 
     // 페이징 처리
@@ -149,8 +202,7 @@ exports.getCampusSchedules = async (req, res) => {
         departure: departure || null,
         arrival: arrival || null,
         direction: direction || null,
-        startTime: startTime || null,
-        endTime: endTime || null
+        startTime: startTime || null
       },
       viaStopsSummary: schedules
         .filter(s => s.viaStops && s.viaStops.length > 0)
@@ -181,9 +233,11 @@ exports.getCampusScheduleMeta = async (req, res) => {
       if (matchCondition) matchStages.push({ $match: matchCondition });
     }
 
+    // DB에 실제로 존재하는 dayType만 사용
+    const allDayTypes = await CampusBus.distinct('dayType');
     const distinctDayTypes = normalizedDayTypes?.match?.length
-      ? normalizedDayTypes.match
-      : await CampusBus.distinct('dayType');
+      ? normalizedDayTypes.match.filter(type => allDayTypes.includes(type))
+      : allDayTypes;
 
     const departures = await CampusBus.aggregate([
       ...matchStages,
@@ -356,7 +410,8 @@ exports.getCampusStops = async (req, res) => {
           latitude: coordinates.latitude,
           longitude: coordinates.longitude,
           naverPlaceId: coordinates.naverPlaceId || null,
-          address: coordinates.address || null
+          address: coordinates.address || null,
+          title: coordinates.title || null
         } : null
       };
     });

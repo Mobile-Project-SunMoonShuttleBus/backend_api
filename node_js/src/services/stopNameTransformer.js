@@ -22,40 +22,114 @@ function transformStopName(stopName) {
     transformations.push('아산 용암동');
   }
 
-  // 규칙 2: 특정 패턴 변환 (공백 제거보다 먼저)
-  // "천안 아산역" → 주소 기반 검색 (지도에서는 나오지만 Geocoding API는 주소 기반)
-  if (stopName.includes('천안 아산역') || stopName === '천안 아산역') {
-    // 지도에서 "아산 배방읍"에 위치함
-    transformations.push('아산시 배방읍');
-    transformations.push('아산 배방읍');
-    transformations.push('충청남도 아산시 배방읍');
-    // 역 이름도 시도
-    transformations.push('천안아산역');
-    transformations.push('아산역');
-    transformations.push('천안아산역 KTX');
-  }
+  const normalized = stopName.replace(/\s+/g, '').toLowerCase();
 
-  // "천안 터미널" → 주소 기반 검색 (지도에서 "천안 동남구 신부동"에 위치)
+  const SPECIFIC_HINTS = [
+    {
+      tokens: ['천안아산역', '천안 아산역', '천아산역'],
+      addresses: [
+        '충청남도 아산시 배방읍 희망로 100',
+        '충청남도 아산시 배방읍 희망로',
+        '충청남도 아산시 배방읍'
+      ],
+      keywords: ['천안아산역', '아산역']
+    },
+    {
+      tokens: ['천안역'],
+      addresses: [
+        '충청남도 천안시 동남구 대흥로 239',
+        '충청남도 천안시 동남구'
+      ],
+      keywords: ['천안역']
+    },
+    {
+      tokens: ['천안터미널', '천안 터미널'],
+      addresses: [
+        '충청남도 천안시 동남구 신부동',
+        '충청남도 천안시'
+      ],
+      keywords: ['천안종합터미널', '천안터미널', '천안시외버스터미널']
+    },
+    {
+      tokens: ['온양온천역', '온양온천'],
+      addresses: [
+        '충청남도 아산시 온천동'
+      ],
+      keywords: ['온양온천역', '온양역']
+    },
+    {
+      tokens: ['아산캠퍼스', '선문대'],
+      addresses: [
+        '충청남도 아산시 탕정면 선문로 221',
+        '충청남도 아산시 탕정면'
+      ],
+      keywords: ['선문대학교 아산캠퍼스', '선문대학교']
+    }
+  ];
+
+  SPECIFIC_HINTS.forEach(({ tokens, addresses, keywords }) => {
+    if (tokens.some(token => normalized.includes(token.replace(/\s+/g, '').toLowerCase()))) {
+      addresses.forEach(addr => transformations.push(addr));
+      if (keywords) {
+        keywords.forEach(word => transformations.push(word));
+      }
+      addresses.forEach(addr => transformations.push(`${addr} ${stopName}`));
+    }
+  });
+
+  const REGION_HINTS = [
+    {
+      token: '천안',
+      addresses: ['충청남도 천안시']
+    },
+    {
+      token: '아산',
+      addresses: ['충청남도 아산시']
+    },
+    {
+      token: '배방',
+      addresses: ['충청남도 아산시 배방읍']
+    },
+    {
+      token: '온양',
+      addresses: ['충청남도 아산시 온천동']
+    },
+    {
+      token: '신부동',
+      addresses: ['충청남도 천안시 동남구 신부동']
+    }
+  ];
+
+  REGION_HINTS.forEach(({ token, addresses }) => {
+    if (normalized.includes(token.replace(/\s+/g, ''))) {
+      addresses.forEach(addr => {
+        transformations.push(addr);
+        transformations.push(`${addr} ${stopName}`);
+      });
+    }
+  });
+
+  // "천안 터미널" → 터미널 이름 기반 검색 우선
   if (stopName.includes('천안 터미널') || stopName === '천안 터미널') {
-    // 지도에서 "천안 동남구 신부동"에 위치함
-    transformations.push('천안시 동남구 신부동');
-    transformations.push('천안 동남구 신부동');
-    transformations.push('충청남도 천안시 동남구 신부동');
-    // 터미널 이름도 시도
+    // 터미널 이름 기반 검색 우선 (구체적인 이름을 먼저 시도)
     transformations.push('천안종합터미널');
     transformations.push('천안시외버스터미널');
     transformations.push('천안터미널');
+    transformations.push('천안 버스터미널');
+    // 주소 기반 검색은 마지막에 시도
+    transformations.push('천안시 동남구 신부동 천안종합터미널');
+    transformations.push('충청남도 천안시 동남구 신부동');
   }
 
-  // "온양온천역" → 주소 기반 검색 (지도에서 "아산 온천동"에 위치)
+  // "온양온천역" → 역 이름 기반 검색 우선
   if (stopName.includes('온양온천역')) {
-    // 지도에서 "아산 온천동"에 위치함
-    transformations.push('아산시 온천동');
-    transformations.push('아산 온천동');
-    transformations.push('충청남도 아산시 온천동');
-    // 역 이름도 시도
+    // 역 이름 기반 검색 우선 (구체적인 이름을 먼저 시도)
     transformations.push('온양온천역');
     transformations.push('온양역');
+    transformations.push('온양온천역역');
+    // 주소 기반 검색은 마지막에 시도
+    transformations.push('아산시 온천동 온양온천역');
+    transformations.push('충청남도 아산시 온천동');
   }
 
   // 규칙 3: "캠퍼스" 키워드가 있으면 "선문대학교" 추가
@@ -78,12 +152,20 @@ function transformStopName(stopName) {
     }
   }
 
-  // "천안역" → "천안역", "천안역역", "충청남도 천안시"
+  // "천안역" → 정확한 주소 기반 검색 우선
   if (stopName === '천안역') {
+    // 정확한 주소 기반 검색 우선 (가장 정확)
+    transformations.push('충청남도 천안시 동남구 대흥로 239');
+    transformations.push('천안시 동남구 대흥로 239');
+    transformations.push('동남구 대흥로 239');
+    transformations.push('충청남도 천안시 동남구 대흥로');
+    // 주소 + 역명 조합
+    transformations.push('충청남도 천안시 동남구 천안역');
+    transformations.push('천안시 동남구 천안역');
+    // 역 이름만 검색
     transformations.push('천안역');
-    transformations.push('천안역역');
-    transformations.push('충청남도 천안시');
-    transformations.push('천안시');
+    transformations.push('천안역 KTX');
+    transformations.push('KTX 천안역');
   }
 
   // "용암마을" → 이미 규칙 2에서 처리됨, 여기서는 추가 변형만

@@ -6,6 +6,9 @@ require('dotenv').config({ path: path.join(__dirname, '../../.env') });
 const NAVER_API_KEY_ID = process.env.NAVER_CLIENT_ID; // x-ncp-apigw-api-key-id
 const NAVER_API_KEY = process.env.NAVER_CLIENT_SECRET; // x-ncp-apigw-api-key
 
+const axiosInstance = axios.create({
+  timeout: 5000
+});
 
 // 네이버 좌표계(KATEC)를 WGS84로 변환
 // 네이버 검색 API는 mapx, mapy를 제공하며 이를 WGS84로 변환해야 함
@@ -55,17 +58,97 @@ function convertNaverToWGS84(mapx, mapy) {
   };
 }
 
-// 네이버 클라우드 플랫폼 Geocoding API로 정류장 좌표 조회
-async function searchStopCoordinatesV2(stopName) {
+/**
+ * 검색어와 결과 주소가 관련이 있는지 확인
+ * @param {string} searchQuery - 검색한 정류장 이름
+ * @param {string} resultAddress - API에서 반환된 주소
+ * @returns {boolean} - 관련성이 있으면 true
+ */
+function isRelevantResult(searchQuery, resultAddress) {
+  if (!resultAddress) return false;
+  
+  const query = searchQuery.toLowerCase().replace(/\s+/g, '');
+  const address = resultAddress.toLowerCase().replace(/\s+/g, '');
+  
+  // 검색어의 핵심 키워드 추출
+  const keywords = [];
+  
+  // 역 이름 추출
+  if (query.includes('천안아산역') || query.includes('천안아산')) {
+    keywords.push('천안아산역', '천안아산', '아산역');
+  }
+  if (query.includes('천안역')) {
+    keywords.push('천안역');
+  }
+  if (query.includes('온양온천역') || query.includes('온양온천')) {
+    keywords.push('온양온천역', '온양온천', '온양역');
+  }
+  if (query.includes('터미널')) {
+    keywords.push('터미널', '종합터미널', '시외버스터미널');
+  }
+  if (query.includes('아산캠퍼스') || query.includes('선문대')) {
+    keywords.push('선문대', '아산캠퍼스', '선문대학교');
+  }
+  
+  // 주소에 핵심 키워드가 포함되어 있는지 확인
+  if (keywords.length > 0) {
+    return keywords.some(keyword => address.includes(keyword.toLowerCase()));
+  }
+  
+  // 키워드가 없으면 검색어 자체가 주소에 포함되어 있는지 확인
+  return address.includes(query);
+}
+
+function calculateMatchScore(searchText, addressText = '', titleText = '') {
+  const search = (searchText || '').toLowerCase();
+  const address = (addressText || '').toLowerCase();
+  const title = (titleText || '').toLowerCase();
+  let score = 0;
+
+  const normalizedSearch = search.replace(/\s+/g, '');
+  if (address.includes(normalizedSearch) || title.includes(normalizedSearch)) {
+    score += 20;
+  }
+
+  const keywordChecks = [
+    { keyword: '천안아산역', targets: ['천안아산역', '천안아산', '아산역'] },
+    { keyword: '천안역', targets: ['천안역'] },
+    { keyword: '온양온천역', targets: ['온양온천역', '온양온천', '온양역'] },
+    { keyword: '터미널', targets: ['터미널', '종합터미널', '시외버스터미널'] },
+    { keyword: '아산캠퍼스', targets: ['선문대', '선문대학교', '아산캠퍼스'] },
+    { keyword: '선문대', targets: ['선문대', '선문대학교'] }
+  ];
+
+  keywordChecks.forEach(({ keyword, targets }) => {
+    if (search.includes(keyword)) {
+      targets.forEach(target => {
+        if (address.includes(target) || title.includes(target)) {
+          score += 20;
+        }
+      });
+    }
+  });
+
+  // 주소에만 일반 행정구역만 있고 특정 장소명이 없으면 감점
+  if ((address.includes('읍') || address.includes('동') || address.includes('리')) &&
+      !address.includes('역') && !address.includes('터미널') && !address.includes('캠퍼스') &&
+      !title.includes('역') && !title.includes('터미널') && !title.includes('캠퍼스')) {
+    score -= 5;
+  }
+
+  return score;
+}
+
+async function searchViaGeocoding(stopName) {
   if (!NAVER_API_KEY_ID || !NAVER_API_KEY) {
     throw new Error('네이버 API 키가 설정되지 않았습니다.');
   }
 
   try {
-    const response = await axios.get('https://maps.apigw.ntruss.com/map-geocode/v2/geocode', {
+    const response = await axiosInstance.get('https://maps.apigw.ntruss.com/map-geocode/v2/geocode', {
       params: {
         query: stopName,
-        count: 1
+        count: 5 // 여러 결과를 받아서 가장 관련성 높은 것 선택
       },
       headers: {
         'x-ncp-apigw-api-key-id': NAVER_API_KEY_ID,
@@ -76,21 +159,33 @@ async function searchStopCoordinatesV2(stopName) {
     });
 
     if (response.data.status === 'OK' && response.data.addresses && response.data.addresses.length > 0) {
-      // 가장 관련성 높은 결과 선택 (첫 번째 결과)
-      const address = response.data.addresses[0];
-      
-      // Geocoding API는 이미 WGS84 좌표계로 x(경도), y(위도)를 제공
-      const longitude = parseFloat(address.x);
-      const latitude = parseFloat(address.y);
-      
-      return {
-        success: true,
-        latitude: latitude,
-        longitude: longitude,
-        naverPlaceId: null, // Geocoding API는 place ID를 제공하지 않음
-        address: address.roadAddress || address.jibunAddress || null,
-        title: address.roadAddress || address.jibunAddress || stopName
-      };
+      let bestMatch = null;
+      let bestScore = -Infinity;
+
+      for (const address of response.data.addresses) {
+        const addressText = address.roadAddress || address.jibunAddress || '';
+        const score = calculateMatchScore(stopName, addressText);
+        if (score > bestScore) {
+          bestScore = score;
+          bestMatch = address;
+        }
+      }
+
+      if (bestMatch) {
+        const longitude = parseFloat(bestMatch.x);
+        const latitude = parseFloat(bestMatch.y);
+        const resultAddress = bestMatch.roadAddress || bestMatch.jibunAddress || null;
+
+        return {
+          success: true,
+          latitude,
+          longitude,
+          naverPlaceId: null,
+          address: resultAddress,
+          title: resultAddress || stopName,
+          score: bestScore
+        };
+      }
     }
 
     return {
@@ -118,6 +213,96 @@ async function searchStopCoordinatesV2(stopName) {
       };
     }
   }
+}
+
+async function searchViaLocalAPI(stopName) {
+  if (!NAVER_API_KEY_ID || !NAVER_API_KEY) {
+    throw new Error('네이버 API 키가 설정되지 않았습니다.');
+  }
+
+  try {
+    const response = await axiosInstance.get('https://openapi.naver.com/v1/search/local.json', {
+      params: {
+        query: stopName,
+        display: 5,
+        sort: 'random'
+      },
+      headers: {
+        'X-Naver-Client-Id': NAVER_API_KEY_ID,
+        'X-Naver-Client-Secret': NAVER_API_KEY
+      }
+    });
+
+    if (response.data.items && response.data.items.length > 0) {
+      let bestMatch = null;
+      let bestScore = -Infinity;
+
+      for (const item of response.data.items) {
+        const addressText = item.roadAddress || item.address || '';
+        const titleText = (item.title || '').replace(/<[^>]*>/g, '');
+        const score = calculateMatchScore(stopName, addressText, titleText);
+        if (score > bestScore) {
+          bestScore = score;
+          bestMatch = item;
+        }
+      }
+
+      if (bestMatch) {
+        const converted = convertNaverToWGS84(parseFloat(bestMatch.mapx), parseFloat(bestMatch.mapy));
+        const addressText = bestMatch.roadAddress || bestMatch.address || null;
+        const titleText = (bestMatch.title || '').replace(/<[^>]*>/g, '');
+
+        return {
+          success: true,
+          latitude: converted.lat,
+          longitude: converted.lng,
+          naverPlaceId: null,
+          address: addressText,
+          title: titleText || stopName,
+          score: bestScore
+        };
+      }
+    }
+
+    return {
+      success: false,
+      error: '검색 결과가 없습니다.'
+    };
+  } catch (error) {
+    if (error.response) {
+      console.error(`네이버 Local API 오류 (${error.response.status}):`, error.response.data);
+      return {
+        success: false,
+        error: `네이버 Local API 오류: ${error.response.status}`
+      };
+    }
+
+    console.error('네이버 Local API 요청 실패:', error.message);
+    return {
+      success: false,
+      error: '네이버 Local API 요청 실패'
+    };
+  }
+}
+
+// 네이버 API로 정류장 좌표 조회 (Geocode 우선, 실패 시 Local API)
+async function searchStopCoordinatesV2(stopName) {
+  const geocodeResult = await searchViaGeocoding(stopName);
+  if (geocodeResult.success && geocodeResult.score >= 10) {
+    return geocodeResult;
+  }
+
+  const localResult = await searchViaLocalAPI(stopName);
+  if (localResult.success) {
+    return localResult;
+  }
+
+  // Geocode 결과가 있으나 점수가 낮은 경우라도 fallback
+  if (geocodeResult.success) {
+    return geocodeResult;
+  }
+
+  return localResult;
 }
 
 module.exports = {

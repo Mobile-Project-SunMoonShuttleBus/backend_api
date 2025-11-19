@@ -14,14 +14,10 @@ const { authToken } = require('../middleware/auth');
  *       - bearerAuth: []
  *     parameters:
  *       - in: query
- *         name: busType
- *         schema:
- *           type: string
- *         description: 버스 타입 필터
- *       - in: query
  *         name: dayType
  *         schema:
  *           type: string
+ *           enum: ["평일", "토요일/공휴일", "일요일"]
  *         description: |
  *           요일 필터.
  *           
@@ -31,34 +27,42 @@ const { authToken } = require('../middleware/auth');
  *           - `일요일`
  *           
  *           값을 비워두면 전체 요일을 조회합니다.
+ *         example: "평일"
  *     responses:
  *       200:
  *         description: 셔틀 노선 목록
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 type: object
+ *                 properties:
+ *                   routeId:
+ *                     type: string
+ *                     description: 노선 ID (상세 조회 시 사용)
+ *                     example: "아산캠퍼스-천안 아산역"
+ *                   routeName:
+ *                     type: string
+ *                     description: 노선 이름
+ *                     example: "아산캠퍼스 → 천안 아산역"
+ *                   departure:
+ *                     type: string
+ *                     description: 출발지
+ *                     example: "아산캠퍼스"
+ *                   arrival:
+ *                     type: string
+ *                     description: 도착지
+ *                     example: "천안 아산역"
+ *                   dayTypes:
+ *                     type: array
+ *                     items:
+ *                       type: string
+ *                       enum: ["평일", "토요일/공휴일", "일요일"]
+ *                     description: 운행 요일 목록
+ *                     example: ["평일", "토요일/공휴일", "일요일"]
  */
 router.get('/routes', authToken, shuttleController.getShuttleRoutes);
-
-/**
- * @swagger
- * /shuttle/route/{routeId}:
- *   get:
- *     summary: 셔틀 노선 상세 조회
- *     tags: [Shuttle Routes]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: routeId
- *         required: true
- *         schema:
- *           type: string
- *         description: 노선 ID
- *     responses:
- *       200:
- *         description: 노선 상세 정보
- *       404:
- *         description: 노선을 찾을 수 없음
- */
-router.get('/route/:routeId', authToken, shuttleController.getShuttleRoute);
 
 /**
  * @swagger
@@ -73,6 +77,7 @@ router.get('/route/:routeId', authToken, shuttleController.getShuttleRoute);
  *         name: dayType
  *         schema:
  *           type: string
+ *           enum: ["평일", "토요일/공휴일", "일요일"]
  *         description: |
  *           요일 필터 (쉼표로 여러 개 가능).
  *           
@@ -99,28 +104,41 @@ router.get('/route/:routeId', authToken, shuttleController.getShuttleRoute);
  *         name: fridayOperates
  *         schema:
  *           type: string
- *           enum: [true, false]
- *         description: 금요일 운행 여부
+ *           enum: ["true", "false"]
+ *         description: |
+ *           금요일 운행 여부 필터.
+ *           
+ *           입력 가능 값:
+ *           - `true` - 금요일 운행하는 시간표만 조회
+ *           - `false` - 금요일 미운행하는 시간표만 조회
+ *           
+ *           값을 비워두면 금요일 운행 여부와 관계없이 조회합니다.
+ *         example: "true"
  *       - in: query
  *         name: includeFridayOff
  *         schema:
  *           type: string
- *           enum: [true, false]
- *         description: 금요일 미운행 포함 여부. 기본값은 true
+ *           enum: ["true", "false"]
+ *         description: |
+ *           금요일 미운행 포함 여부. 기본값은 `true`.
+ *           
+ *           입력 가능 값:
+ *           - `true` - 금요일 미운행 시간표도 포함 (기본값)
+ *           - `false` - 금요일 미운행 시간표 제외
+ *         example: "true"
  *       - in: query
  *         name: startTime
  *         schema:
  *           type: string
  *           pattern: '^([0-1][0-9]|2[0-3]):[0-5][0-9]$'
- *         description: 시작 시간. HH:mm 형식
+ *         description: |
+ *           출발 시간 필터. 지정한 시간 이상의 출발시간만 반환합니다.
+ *           
+ *           - 값을 비워두면 전체 시간대를 반환합니다.
+ *           - 값을 지정하면 해당 시간 이상의 출발시간만 반환합니다.
+ *           
+ *           예: `08:00`을 지정하면 08:00 이후 출발하는 시간표만 반환됩니다.
  *         example: "08:00"
- *       - in: query
- *         name: endTime
- *         schema:
- *           type: string
- *           pattern: '^([0-1][0-9]|2[0-3]):[0-5][0-9]$'
- *         description: 종료 시간. HH:mm 형식
- *         example: "18:00"
  *       - in: query
  *         name: limit
  *         schema:
@@ -189,6 +207,7 @@ router.get('/schedules', authToken, shuttleController.getShuttleSchedules);
  *         name: dayType
  *         schema:
  *           type: string
+ *           enum: ["평일", "토요일/공휴일", "일요일"]
  *         description: |
  *           요일 필터 (쉼표로 여러 개 가능).
  *           
@@ -255,6 +274,7 @@ router.get('/schedules/meta', authToken, shuttleController.getShuttleScheduleMet
  *         name: dayType
  *         schema:
  *           type: string
+ *           enum: ["평일", "토요일/공휴일", "일요일"]
  *         description: |
  *           요일 필터.
  *           

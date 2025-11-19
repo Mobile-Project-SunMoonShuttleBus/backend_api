@@ -35,8 +35,8 @@ async function extractAllStopNames() {
   return Array.from(stopNames);
 }
 
-// 정류장 좌표 조회 및 저장 (DB에 없는 정류장만)
-async function updateStopCoordinates() {
+// 정류장 좌표 조회 및 저장 (DB에 없는 정류장만, 또는 강제 재조회)
+async function updateStopCoordinates(forceUpdateNames = []) {
   try {
     // 네이버 API 키 확인
     const path = require('path');
@@ -63,8 +63,19 @@ async function updateStopCoordinates() {
     const existingStops = await BusStop.find({ name: { $in: stopNames } });
     const existingStopNames = new Set(existingStops.map(stop => stop.name));
 
-    // DB에 없는 정류장만 필터링
-    const newStopNames = stopNames.filter(name => !existingStopNames.has(name));
+    // 강제 재조회할 정류장은 기존 목록에서 제외
+    const forceUpdateSet = new Set(forceUpdateNames.map(name => name.trim()));
+    if (forceUpdateSet.size > 0) {
+      console.log(`강제 재조회 대상: ${Array.from(forceUpdateSet).join(', ')}`);
+      // 강제 재조회 대상은 DB에서 삭제
+      await BusStop.deleteMany({ name: { $in: Array.from(forceUpdateSet) } });
+      console.log(`강제 재조회 대상 좌표 삭제 완료`);
+    }
+
+    // DB에 없는 정류장만 필터링 (강제 재조회 대상 포함)
+    const newStopNames = stopNames.filter(name => {
+      return !existingStopNames.has(name) || forceUpdateSet.has(name);
+    });
     console.log(`신규 정류장 ${newStopNames.length}개 발견 (좌표 조회 필요)`);
 
     let successCount = 0;
@@ -104,16 +115,43 @@ async function updateStopCoordinates() {
         }
 
         if (found && result.success) {
+          // 검색 결과의 주소에 정류장 이름이 포함되어 있는지 확인
+          const resultAddress = result.address || '';
+          const stopNameLower = stopName.toLowerCase().replace(/\s+/g, '');
+          const addressLower = resultAddress.toLowerCase().replace(/\s+/g, '');
+          
+          // 핵심 키워드 추출
+          let isRelevant = false;
+          if (stopName.includes('천안 아산역') || stopName.includes('천안아산역')) {
+            isRelevant = addressLower.includes('천안아산역') || addressLower.includes('천안아산');
+          } else if (stopName.includes('천안역')) {
+            isRelevant = addressLower.includes('천안역');
+          } else if (stopName.includes('온양온천역')) {
+            isRelevant = addressLower.includes('온양온천역') || addressLower.includes('온양온천');
+          } else if (stopName.includes('터미널')) {
+            isRelevant = addressLower.includes('터미널');
+          } else if (stopName.includes('캠퍼스') || stopName.includes('선문대')) {
+            isRelevant = addressLower.includes('선문대') || addressLower.includes('캠퍼스');
+          } else {
+            // 기본적으로 주소에 검색어가 포함되어 있으면 관련성 있다고 판단
+            isRelevant = addressLower.includes(stopNameLower) || result.score > 0;
+          }
+          
+          if (!isRelevant && result.score === 0) {
+            console.warn(`⚠ ${stopName} 좌표 조회 결과가 관련성이 낮을 수 있습니다. 주소: ${resultAddress}`);
+          }
+          
           await BusStop.create({
             name: stopName, // 원본 이름으로 저장
             latitude: result.latitude,
             longitude: result.longitude,
             naverPlaceId: result.naverPlaceId,
             naverAddress: result.address,
+            naverTitle: result.title || null,
             lastUpdated: new Date()
           });
           successCount++;
-          console.log(`✓ ${stopName} 좌표 저장 완료 (${result.latitude}, ${result.longitude})`);
+          console.log(`✓ ${stopName} 좌표 저장 완료 (${result.latitude}, ${result.longitude}) - 주소: ${resultAddress || 'N/A'}`);
         } else {
           console.warn(`✗ ${stopName} 좌표 조회 실패: ${result.error}`);
           failCount++;
@@ -164,7 +202,8 @@ async function getStopCoordinates(stopName) {
         latitude: stop.latitude,
         longitude: stop.longitude,
         naverPlaceId: stop.naverPlaceId,
-        address: stop.naverAddress
+        address: stop.naverAddress,
+        title: stop.naverTitle || null
       };
     }
     return {
@@ -190,7 +229,8 @@ async function getMultipleStopCoordinates(stopNames) {
         latitude: stop.latitude,
         longitude: stop.longitude,
         naverPlaceId: stop.naverPlaceId,
-        address: stop.naverAddress
+        address: stop.naverAddress,
+        title: stop.naverTitle || null
       };
     });
 
@@ -201,8 +241,14 @@ async function getMultipleStopCoordinates(stopNames) {
   }
 }
 
+// 특정 정류장 좌표 강제 재조회
+async function forceUpdateStopCoordinates(stopNames) {
+  return await updateStopCoordinates(stopNames);
+}
+
 module.exports = {
   updateStopCoordinates,
+  forceUpdateStopCoordinates,
   getStopCoordinates,
   getMultipleStopCoordinates,
   extractAllStopNames

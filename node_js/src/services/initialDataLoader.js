@@ -47,8 +47,11 @@ async function runInitialCrawlers() {
     }
 
     // 정류장 좌표 자동 조회 및 저장
+    // 정확한 좌표를 위해 특정 정류장은 강제 재조회
     try {
-      const coordinateResult = await updateStopCoordinates();
+      const { updateStopCoordinates } = require('./busStopCoordinateService');
+      const forceUpdateList = ['천안 아산역', '천안역', '천안 터미널', '온양온천역'];
+      const coordinateResult = await updateStopCoordinates(forceUpdateList);
       if (coordinateResult?.success) {
         console.log(
           `정류장 좌표 업데이트 완료: 총 ${coordinateResult.total}개, 기존 ${coordinateResult.existing}개, 신규 ${coordinateResult.new}개, 성공 ${coordinateResult.successCount}개`

@@ -6,6 +6,72 @@ const { authToken } = require('../middleware/auth');
 
 /**
  * @swagger
+ * /campus/routes:
+ *   get:
+ *     summary: 통학버스 노선 전체 목록 조회
+ *     tags: [Campus Bus Routes]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: dayType
+ *         schema:
+ *           type: string
+ *           enum: ["월~목", "금요일"]
+ *         description: |
+ *           요일 필터.
+ *           
+ *           입력 가능 값:
+ *           - `월~목`
+ *           - `금요일`
+ *           
+ *           값을 비워두면 전체 요일을 조회합니다.
+ *         example: "월~목"
+ *     responses:
+ *       200:
+ *         description: 통학버스 노선 목록
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 type: object
+ *                 properties:
+ *                   routeId:
+ *                     type: string
+ *                     description: 노선 ID (상세 조회 시 사용)
+ *                     example: "성남(분당)-아산캠퍼스"
+ *                   routeName:
+ *                     type: string
+ *                     description: 노선 이름
+ *                     example: "성남(분당) → 아산캠퍼스"
+ *                   departure:
+ *                     type: string
+ *                     description: 출발지
+ *                     example: "성남(분당)"
+ *                   arrival:
+ *                     type: string
+ *                     description: 도착지
+ *                     example: "아산캠퍼스"
+ *                   dayTypes:
+ *                     type: array
+ *                     items:
+ *                       type: string
+ *                       enum: ["월~목", "금요일"]
+ *                     description: 운행 요일 목록
+ *                     example: ["월~목", "금요일"]
+ *                   directions:
+ *                     type: array
+ *                     items:
+ *                       type: string
+ *                       enum: ["등교", "하교"]
+ *                     description: 운행 방향 목록
+ *                     example: ["등교", "하교"]
+ */
+router.get('/routes', authToken, campusController.getCampusRoutes);
+
+/**
+ * @swagger
  * /campus/schedules:
  *   get:
  *     summary: 통학버스 시간표 조회
@@ -17,6 +83,7 @@ const { authToken } = require('../middleware/auth');
  *         name: dayType
  *         schema:
  *           type: string
+ *           enum: ["월~목", "금요일"]
  *         description: |
  *           요일 필터 (쉼표로 여러 개 가능).
  *           
@@ -42,23 +109,29 @@ const { authToken } = require('../middleware/auth');
  *         name: direction
  *         schema:
  *           type: string
- *           enum: [등교, 하교]
- *         description: 방향 (등교/하교)
+ *           enum: ["등교", "하교"]
+ *         description: |
+ *           방향 필터 (통학버스 전용).
+ *           
+ *           입력 가능 값:
+ *           - `등교` - 등교 방향 시간표만 조회
+ *           - `하교` - 하교 방향 시간표만 조회
+ *           
+ *           값을 비워두면 모든 방향을 조회합니다.
  *         example: "등교"
  *       - in: query
  *         name: startTime
  *         schema:
  *           type: string
  *           pattern: '^([0-1][0-9]|2[0-3]):[0-5][0-9]$'
- *         description: 시작 시간. HH:mm 형식
+ *         description: |
+ *           출발 시간 필터. 지정한 시간 이상의 출발시간만 반환합니다.
+ *           
+ *           - 값을 비워두면 전체 시간대를 반환합니다.
+ *           - 값을 지정하면 해당 시간 이상의 출발시간만 반환합니다.
+ *           
+ *           예: `07:00`을 지정하면 07:00 이후 출발하는 시간표만 반환됩니다.
  *         example: "07:00"
- *       - in: query
- *         name: endTime
- *         schema:
- *           type: string
- *           pattern: '^([0-1][0-9]|2[0-3]):[0-5][0-9]$'
- *         description: 종료 시간. HH:mm 형식
- *         example: "18:00"
  *       - in: query
  *         name: limit
  *         schema:
@@ -96,6 +169,7 @@ router.get('/schedules', authToken, campusController.getCampusSchedules);
  *         name: dayType
  *         schema:
  *           type: string
+ *           enum: ["월~목", "금요일"]
  *         description: |
  *           요일 필터 (쉼표로 여러 개 가능).
  *           
@@ -127,6 +201,7 @@ router.get('/schedules/meta', authToken, campusController.getCampusScheduleMeta)
  *         name: dayType
  *         schema:
  *           type: string
+ *           enum: ["월~목", "금요일"]
  *         description: |
  *           요일 필터 (쉼표로 여러 개 가능).
  *           

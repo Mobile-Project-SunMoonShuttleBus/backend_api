@@ -19,6 +19,10 @@ const busStopSchema = new mongoose.Schema({
     type: String,
     default: null
   },
+  naverTitle: {
+    type: String,
+    default: null
+  },
   naverAddress: {
     type: String,
     default: null

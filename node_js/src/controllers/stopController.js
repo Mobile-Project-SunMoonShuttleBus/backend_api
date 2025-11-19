@@ -313,7 +313,8 @@ exports.getAllStops = async (req, res) => {
           latitude: coordinates.latitude,
           longitude: coordinates.longitude,
           naverPlaceId: coordinates.naverPlaceId || null,
-          address: coordinates.address || null
+          address: coordinates.address || null,
+          title: coordinates.title || null
         } : null
       };
     });
