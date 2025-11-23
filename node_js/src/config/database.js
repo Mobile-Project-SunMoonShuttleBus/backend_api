@@ -113,6 +113,7 @@ const initializeDatabase = async () => {
     require('../models/SchoolAccount');
     require('../models/Timetable');
     require('../models/ShuttleRoute');
+    require('../models/ShuttleRoutePath');
     require('../models/ShuttleBus');
     require('../models/CampusBus');
     require('../models/BusStop');
@@ -124,6 +125,7 @@ const initializeDatabase = async () => {
     const SchoolAccount = mongoose.model('SchoolAccount');
     const Timetable = mongoose.model('Timetable');
     const ShuttleRoute = mongoose.model('ShuttleRoute');
+    const ShuttleRoutePath = mongoose.model('ShuttleRoutePath');
     const ShuttleBus = mongoose.model('ShuttleBus');
     const CampusBus = mongoose.model('CampusBus');
     const BusStop = mongoose.model('BusStop');
@@ -135,6 +137,7 @@ const initializeDatabase = async () => {
     await SchoolAccount.createIndexes();
     await Timetable.createIndexes();
     await ShuttleRoute.createIndexes();
+    await ShuttleRoutePath.createIndexes();
     await ShuttleBus.createIndexes();
     await CampusBus.createIndexes();
     await BusStop.createIndexes();

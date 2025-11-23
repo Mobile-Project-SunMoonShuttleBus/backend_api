@@ -175,6 +175,66 @@ function transformStopName(stopName) {
     transformations.push('용암동');
   }
 
+  // "하이렉스파 건너편" → 하이렉스파 관련 검색
+  if (stopName.includes('하이렉스파')) {
+    transformations.push('하이렉스파');
+    transformations.push('천안 하이렉스파');
+    transformations.push('충청남도 천안시 하이렉스파');
+    transformations.push('천안시 하이렉스파');
+    transformations.push('하이렉스파 천안');
+  }
+
+  // "두정동 맥도날드" → 맥도날드 두정동점 검색
+  if (stopName.includes('두정동') && stopName.includes('맥도날드')) {
+    transformations.push('맥도날드 두정동점');
+    transformations.push('맥도날드 천안 두정동');
+    transformations.push('천안 두정동 맥도날드');
+    transformations.push('충청남도 천안시 서북구 두정동 맥도날드');
+    transformations.push('두정동');
+    transformations.push('천안시 서북구 두정동');
+  }
+
+  // "홈마트 에브리데이" → 홈마트 에브리데이 검색
+  if (stopName.includes('홈마트') || stopName.includes('에브리데이')) {
+    transformations.push('홈마트 에브리데이');
+    transformations.push('에브리데이 홈마트');
+    transformations.push('천안 홈마트');
+    transformations.push('천안 에브리데이');
+    transformations.push('충청남도 천안시 홈마트');
+    transformations.push('충청남도 천안시 에브리데이');
+  }
+
+  // "권곡초 버스정류장" → 권곡초등학교 검색
+  if (stopName.includes('권곡초')) {
+    transformations.push('권곡초등학교');
+    transformations.push('권곡초');
+    transformations.push('아산 권곡초등학교');
+    transformations.push('충청남도 아산시 권곡초등학교');
+    transformations.push('아산시 권곡초등학교');
+    transformations.push('권곡초등학교 버스정류장');
+  }
+
+  // "서울대정병원" → 서울대정병원 검색
+  if (stopName.includes('서울대정병원') || stopName.includes('서울대정병원')) {
+    transformations.push('서울대정병원');
+    transformations.push('서울대학교병원 천안');
+    transformations.push('서울대병원 천안');
+    transformations.push('천안 서울대정병원');
+    transformations.push('충청남도 천안시 서울대정병원');
+    transformations.push('천안시 서울대정병원');
+    transformations.push('서울대학교 천안병원');
+  }
+
+  // "주은아파트 버스정류장" → 주은아파트 검색
+  if (stopName.includes('주은아파트')) {
+    transformations.push('주은아파트');
+    transformations.push('아산 주은아파트');
+    transformations.push('충청남도 아산시 주은아파트');
+    transformations.push('아산시 주은아파트');
+    transformations.push('주은아파트 아산');
+    transformations.push('주은아파트 정류장');
+  }
+
   // "야탑역 하나은행 앞" → "야탑역 하나은행", "야탑역", "야탑"
   if (stopName.includes('야탑역')) {
     if (stopName.includes('하나은행')) {

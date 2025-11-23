@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const shuttleController = require('../controllers/shuttleController');
+const shuttleRoutePathController = require('../controllers/shuttleRoutePathController');
 const busScheduleService = require('../services/busScheduleService');
 const { authToken } = require('../middleware/auth');
 
@@ -351,6 +352,158 @@ router.get('/schedules/meta', authToken, shuttleController.getShuttleScheduleMet
  *         description: 서버 오류
  */
 router.get('/stops', authToken, shuttleController.getShuttleStops);
+
+/**
+ * @swagger
+ * /shuttle/route-path:
+ *   get:
+ *     summary: 셔틀버스 경로 좌표 조회
+ *     tags: [Shuttle Routes]
+ *     security:
+ *       - bearerAuth: []
+ *     description: |
+ *       출발지-도착지 간 경로 좌표를 조회합니다. 경유지를 포함한 전체 경로 좌표를 반환합니다.
+ *       
+ *       **중요 사항:**
+ *       - 경유지 중 좌표가 없는 정류장은 자동으로 제외됩니다.
+ *       - 좌표가 있는 경유지만 경로 계산에 포함됩니다.
+ *       - 경로 좌표는 네이버 Directions API를 사용하여 계산됩니다.
+ *       - 경유지는 최대 5개까지 지원됩니다.
+ *     parameters:
+ *       - in: query
+ *         name: departure
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: 출발지 정류장 이름
+ *         example: "아산캠퍼스"
+ *       - in: query
+ *         name: arrival
+ *         schema:
+ *           type: string
+ *         required: true
+ *         description: 도착지 정류장 이름
+ *         example: "천안 아산역"
+ *       - in: query
+ *         name: direction
+ *         schema:
+ *           type: string
+ *           enum: ["등교", "하교"]
+ *         required: true
+ *         description: 방향 (등교/하교)
+ *         example: "하교"
+ *       - in: query
+ *         name: dayType
+ *         schema:
+ *           type: string
+ *           enum: ["평일", "토요일/공휴일", "일요일"]
+ *         required: true
+ *         description: 운행 요일
+ *         example: "평일"
+ *     responses:
+ *       200:
+ *         description: 경로 좌표 조회 성공
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   description: 조회 성공 여부
+ *                   example: true
+ *                 route:
+ *                   type: object
+ *                   description: 경로 정보
+ *                   properties:
+ *                     departure:
+ *                       type: string
+ *                       description: 출발지 정류장 이름
+ *                       example: "천안역"
+ *                     arrival:
+ *                       type: string
+ *                       description: 도착지 정류장 이름
+ *                       example: "아산캠퍼스"
+ *                     direction:
+ *                       type: string
+ *                       description: 방향
+ *                       example: "등교"
+ *                     dayType:
+ *                       type: string
+ *                       description: 운행 요일
+ *                       example: "평일"
+ *                     viaStops:
+ *                       type: array
+ *                       items:
+ *                         type: string
+ *                       description: 사용된 경유지 목록 (좌표가 있는 경유지만 포함)
+ *                       example: ["하이렉스파 건너편", "용암마을"]
+ *                     path:
+ *                       type: array
+ *                       items:
+ *                         type: array
+ *                         items:
+ *                           type: number
+ *                       description: 경로 좌표 배열 [[경도, 위도], ...] (네이버 지도 표시용)
+ *                       example: [[127.1464289, 36.8102415], [127.1542, 36.8194], [127.526112, 36.620449], [127.002474, 36.790013]]
+ *                     distance:
+ *                       type: number
+ *                       description: 총 거리 (미터)
+ *                       example: 45230
+ *                     duration:
+ *                       type: number
+ *                       description: 총 소요 시간 (밀리초)
+ *                       example: 3240000
+ *                     stopCoordinates:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         description: 정류장 좌표 정보 (출발지 -> 경유지 -> 도착지 순서)
+ *                         properties:
+ *                           name:
+ *                             type: string
+ *                             description: 정류장 이름
+ *                             example: "천안역"
+ *                           latitude:
+ *                             type: number
+ *                             description: 위도 (WGS84 좌표계)
+ *                             example: 36.8102415
+ *                           longitude:
+ *                             type: number
+ *                             description: 경도 (WGS84 좌표계)
+ *                             example: 127.1464289
+ *                           order:
+ *                             type: number
+ *                             description: 정류장 순서 (0부터 시작, 출발지가 0)
+ *                             example: 0
+ *       400:
+ *         description: 필수 파라미터 누락 또는 잘못된 파라미터
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "필수 파라미터가 누락되었습니다."
+ *                 required:
+ *                   type: array
+ *                   items:
+ *                     type: string
+ *       404:
+ *         description: 경로를 찾을 수 없음 (시간표가 없거나 경로 계산 실패)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "경로를 찾을 수 없습니다."
+ *       500:
+ *         description: 서버 오류
+ */
+router.get('/route-path', authToken, shuttleRoutePathController.getRoutePath);
 
 /**
  * @swagger

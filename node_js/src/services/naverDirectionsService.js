@@ -48,11 +48,11 @@ async function getDirections(params) {
     if (waypoints.length > 0 && waypoints.length <= 5) {
       const waypointsStr = waypoints.map(wp => 
         typeof wp === 'string' ? wp : `${wp.lng},${wp.lat}`
-      ).join(':');
+      ).join('|');
       queryParams.waypoints = waypointsStr;
     }
 
-    const response = await axiosInstance.get('https://maps.apigw.ntruss.com/maps/v5/driving', {
+    const response = await axiosInstance.get('https://maps.apigw.ntruss.com/map-direction/v1/driving', {
       params: queryParams,
       headers: {
         'x-ncp-apigw-api-key-id': NAVER_API_KEY_ID,
@@ -62,18 +62,36 @@ async function getDirections(params) {
       timeout: 10000
     });
 
-    if (response.data && response.data.route && response.data.route.traoptimal) {
-      const route = response.data.route.traoptimal[0];
-      
-      return {
-        success: true,
-        distance: route.summary.distance, // 미터 단위
-        duration: route.summary.duration, // 밀리초 단위
-        path: route.path, // 경로 좌표 배열 [[lng, lat], ...]
-        guide: route.guide, // 경로 안내 정보
-        section: route.section, // 구간별 정보
-        summary: route.summary
-      };
+    if (response.data) {
+      if (response.data.code === 0 && response.data.route) {
+        let route = null;
+        
+        if (response.data.route.trafast && response.data.route.trafast.length > 0) {
+          route = response.data.route.trafast[0];
+        } else if (response.data.route.traoptimal && response.data.route.traoptimal.length > 0) {
+          route = response.data.route.traoptimal[0];
+        } else if (response.data.route.tracomfort && response.data.route.tracomfort.length > 0) {
+          route = response.data.route.tracomfort[0];
+        }
+        
+        if (route) {
+          return {
+            success: true,
+            distance: route.summary.distance, // 미터 단위
+            duration: route.summary.duration, // 밀리초 단위
+            path: route.path, // 경로 좌표 배열 [[lng, lat], ...]
+            guide: route.guide, // 경로 안내 정보
+            section: route.section, // 구간별 정보
+            summary: route.summary
+          };
+        }
+      } else if (response.data.code !== 0) {
+        const errorMsg = response.data.message || `오류 코드: ${response.data.code}`;
+        return {
+          success: false,
+          error: errorMsg
+        };
+      }
     }
 
     return {
@@ -136,7 +154,7 @@ async function getDirections15(params) {
       queryParams.waypoints = waypointsStr;
     }
 
-    const response = await axiosInstance.get('https://maps.apigw.ntruss.com/maps/v5/driving', {
+    const response = await axiosInstance.get('https://maps.apigw.ntruss.com/map-direction15/v1/driving', {
       params: queryParams,
       headers: {
         'x-ncp-apigw-api-key-id': NAVER_API_KEY_ID,
@@ -146,18 +164,26 @@ async function getDirections15(params) {
       timeout: 10000
     });
 
-    if (response.data && response.data.route && response.data.route.traoptimal) {
-      const route = response.data.route.traoptimal[0];
-      
-      return {
-        success: true,
-        distance: route.summary.distance,
-        duration: route.summary.duration,
-        path: route.path,
-        guide: route.guide,
-        section: route.section,
-        summary: route.summary
-      };
+    if (response.data) {
+      if (response.data.code === 0 && response.data.route && response.data.route.traoptimal && response.data.route.traoptimal.length > 0) {
+        const route = response.data.route.traoptimal[0];
+        
+        return {
+          success: true,
+          distance: route.summary.distance,
+          duration: route.summary.duration,
+          path: route.path,
+          guide: route.guide,
+          section: route.section,
+          summary: route.summary
+        };
+      } else if (response.data.code !== 0) {
+        const errorMsg = response.data.message || `오류 코드: ${response.data.code}`;
+        return {
+          success: false,
+          error: errorMsg
+        };
+      }
     }
 
     return {

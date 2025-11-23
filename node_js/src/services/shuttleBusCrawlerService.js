@@ -1365,11 +1365,108 @@ async function saveSchedulesToDB(schedules) {
   }
 }
 
-// 전체 크롤링 및 저장
+async function saveRoutePaths(schedules) {
+  const { checkAndUpdateRoutes } = require('./shuttleRoutePathService');
+  
+  try {
+    console.log('\n경로 좌표 계산 및 저장 시작...');
+    
+    const routeMap = new Map();
+    
+    for (const schedule of schedules) {
+      const departure = schedule.departure;
+      const arrival = schedule.arrival;
+      const viaStops = schedule.viaStops || [];
+      
+      if (departure === '아산캠퍼스') {
+        const direction = '하교';
+        const dayType = schedule.dayType;
+        const routeKey = `${departure}-${arrival}-${direction}-${dayType}`;
+        
+        if (!routeMap.has(routeKey)) {
+          routeMap.set(routeKey, {
+            departure,
+            arrival,
+            direction,
+            dayType,
+            viaStops
+          });
+        }
+      } else {
+        const direction = '등교';
+        const dayType = schedule.dayType;
+        const routeKey = `${departure}-${arrival}-${direction}-${dayType}`;
+        
+        if (!routeMap.has(routeKey)) {
+          routeMap.set(routeKey, {
+            departure,
+            arrival,
+            direction,
+            dayType,
+            viaStops
+          });
+        }
+      }
+    }
+    
+    let savedCount = 0;
+    let updatedCount = 0;
+    let failedCount = 0;
+    
+    for (const route of routeMap.values()) {
+      try {
+        const result = await checkAndUpdateRoutes(
+          route.departure,
+          route.arrival,
+          route.direction,
+          route.dayType,
+          route.viaStops
+        );
+        
+        if (result.success) {
+          if (result.isNew) {
+            savedCount++;
+          } else {
+            updatedCount++;
+          }
+        } else {
+          console.error(`경로 저장 실패: ${route.departure} -> ${route.arrival}`, result.error);
+          failedCount++;
+        }
+        
+        await new Promise(resolve => setTimeout(resolve, 500));
+      } catch (error) {
+        console.error(`경로 저장 오류: ${route.departure} -> ${route.arrival}`, error.message);
+        failedCount++;
+      }
+    }
+    
+    console.log(`경로 좌표 저장 완료: 신규 ${savedCount}개, 업데이트 ${updatedCount}개, 실패 ${failedCount}개`);
+    
+    return {
+      saved: savedCount,
+      updated: updatedCount,
+      failed: failedCount,
+      total: routeMap.size
+    };
+  } catch (error) {
+    console.error('경로 좌표 저장 실패:', error);
+    return {
+      saved: 0,
+      updated: 0,
+      failed: 0,
+      total: 0,
+      error: error.message
+    };
+  }
+}
+
 async function crawlAndSaveAll() {
   try {
     const schedules = await crawlAllSchedules();
     const result = await saveSchedulesToDB(schedules);
+    
+    await saveRoutePaths(schedules);
     
     return {
       success: true,
@@ -1389,6 +1486,7 @@ module.exports = {
   crawlAllSchedules,
   crawlAndSaveAll,
   saveSchedulesToDB,
+  saveRoutePaths,
   CRAWL_URLS
 };
 
