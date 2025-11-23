@@ -40,7 +40,6 @@ const shuttleBusSchema = new mongoose.Schema({
     ],
     default: []
   },
-  // 학생회관 탑승 가능 여부
   studentHallBoardingAvailable: {
     type: Boolean,
     default: false

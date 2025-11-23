@@ -279,6 +279,16 @@ exports.getAllStops = async (req, res) => {
       }
     });
 
+    // 추가 정류장 (셔틀버스에서 사용 가능)
+    const additionalStops = ['충남 아산시 선문대 정류소', '선문대학생회관 앞'];
+    additionalStops.forEach(stopName => {
+      const stop = ensureStop(stopName);
+      // 셔틀버스에서 사용 가능
+      stop.availableIn.add('shuttle');
+      stop.shuttleDayTypes.add('평일');
+      stop.dayTypes.add('평일');
+    });
+
     // 배열로 변환 및 정렬
     const stops = Array.from(stopMap.values())
       .map((item) => ({

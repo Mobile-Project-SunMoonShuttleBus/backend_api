@@ -32,6 +32,10 @@ async function extractAllStopNames() {
     }
   });
 
+  // 추가 정류장 (셔틀버스 정류장)
+  const additionalStops = ['충남 아산시 선문대 정류소', '선문대학생회관 앞'];
+  additionalStops.forEach(name => stopNames.add(name));
+
   return Array.from(stopNames);
 }
 
@@ -44,19 +48,16 @@ async function updateStopCoordinates(forceUpdateNames = []) {
     const NAVER_API_KEY_ID = process.env.NAVER_CLIENT_ID;
     const NAVER_API_KEY = process.env.NAVER_CLIENT_SECRET;
     
-    if (!NAVER_API_KEY_ID || !NAVER_API_KEY) {
-      console.warn('네이버 API 키가 설정되지 않아 정류장 좌표 업데이트를 건너뜁니다.');
-      return {
-        success: false,
-        error: '네이버 API 키가 설정되지 않았습니다.',
-        skipped: true
-      };
+    const hasNaverApi = !!(NAVER_API_KEY_ID && NAVER_API_KEY);
+    if (!hasNaverApi) {
+      console.warn('네이버 API 키가 설정되지 않았습니다. 하드코딩된 정류장만 처리합니다.');
     }
 
     console.log('정류장 좌표 업데이트 시작...');
     
     // 모든 정류장 이름 추출
     const stopNames = await extractAllStopNames();
+    
     console.log(`총 ${stopNames.length}개 정류장 발견`);
 
     // DB에 이미 있는 정류장 조회
@@ -87,6 +88,12 @@ async function updateStopCoordinates(forceUpdateNames = []) {
       try {
         let result = null;
         let found = false;
+        
+        // 네이버 API가 없으면 건너뛰기
+        if (!hasNaverApi) {
+          console.log(`네이버 API 없음, ${stopName} 건너뜀`);
+          continue;
+        }
         
         // 원본 이름으로 먼저 시도
         console.log(`좌표 조회 중: ${stopName}`);

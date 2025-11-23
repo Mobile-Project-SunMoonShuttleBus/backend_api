@@ -140,24 +140,45 @@ function calculateMatchScore(searchText, addressText = '', titleText = '') {
 }
 
 async function searchViaGeocoding(stopName) {
+  console.log(`[Geocoding] 함수 호출됨: ${stopName}`);
+  console.log(`[Geocoding] API 키 확인: ID=${NAVER_API_KEY_ID ? '있음' : '없음'}, KEY=${NAVER_API_KEY ? '있음' : '없음'}`);
+  
   if (!NAVER_API_KEY_ID || !NAVER_API_KEY) {
     throw new Error('네이버 API 키가 설정되지 않았습니다.');
   }
 
   try {
-    const response = await axiosInstance.get('https://maps.apigw.ntruss.com/map-geocode/v2/geocode', {
-      params: {
-        query: stopName,
-        count: 5 // 여러 결과를 받아서 가장 관련성 높은 것 선택
-      },
-      headers: {
-        'x-ncp-apigw-api-key-id': NAVER_API_KEY_ID,
-        'x-ncp-apigw-api-key': NAVER_API_KEY,
-        'Accept': 'application/json'
-      },
+    console.log(`[Geocoding] API 호출 시작: ${stopName}`);
+    const url = 'https://maps.apigw.ntruss.com/map-geocode/v2/geocode';
+    const params = {
+      query: stopName,
+      count: 5
+    };
+    const headers = {
+      'x-ncp-apigw-api-key-id': NAVER_API_KEY_ID,
+      'x-ncp-apigw-api-key': NAVER_API_KEY,
+      'Accept': 'application/json'
+    };
+    
+    console.log(`[Geocoding] 요청 URL: ${url}`);
+    console.log(`[Geocoding] 요청 파라미터:`, params);
+    
+    const response = await axiosInstance.get(url, {
+      params: params,
+      headers: headers,
       timeout: 5000
     });
+    
+    console.log(`[Geocoding] 응답 받음: status=${response.status}`);
 
+    // API 응답 로깅 (디버깅)
+    console.log(`Geocoding API 응답 (${stopName}):`, {
+      status: response.data.status,
+      addressCount: response.data.addresses?.length || 0,
+      meta: response.data.meta
+    });
+
+    // API 응답 확인
     if (response.data.status === 'OK' && response.data.addresses && response.data.addresses.length > 0) {
       let bestMatch = null;
       let bestScore = -Infinity;
@@ -171,6 +192,7 @@ async function searchViaGeocoding(stopName) {
         }
       }
 
+      // bestMatch가 있으면 반환 (점수와 관계없이)
       if (bestMatch) {
         const longitude = parseFloat(bestMatch.x);
         const latitude = parseFloat(bestMatch.y);
@@ -186,15 +208,33 @@ async function searchViaGeocoding(stopName) {
           score: bestScore
         };
       }
+
+      // bestMatch가 없어도 첫 번째 결과 반환
+      const firstAddress = response.data.addresses[0];
+      const longitude = parseFloat(firstAddress.x);
+      const latitude = parseFloat(firstAddress.y);
+      const resultAddress = firstAddress.roadAddress || firstAddress.jibunAddress || null;
+
+      return {
+        success: true,
+        latitude,
+        longitude,
+        naverPlaceId: null,
+        address: resultAddress,
+        title: resultAddress || stopName,
+        score: 0
+      };
     }
 
+    // 응답이 있지만 결과가 없는 경우
+    console.warn(`Geocoding API 응답: status=${response.data.status}, addresses=${response.data.addresses?.length || 0}`);
     return {
       success: false,
-      error: '검색 결과가 없습니다.'
+      error: `검색 결과가 없습니다. (status: ${response.data.status}, count: ${response.data.addresses?.length || 0})`
     };
   } catch (error) {
     if (error.response) {
-      console.error(`네이버 Geocoding API 오류 (${error.response.status}):`, error.response.data);
+      console.error(`네이버 Geocoding API 오류 (${error.response.status}):`, JSON.stringify(error.response.data, null, 2));
       return {
         success: false,
         error: `네이버 Geocoding API 오류: ${error.response.status} - ${JSON.stringify(error.response.data)}`
@@ -215,94 +255,20 @@ async function searchViaGeocoding(stopName) {
   }
 }
 
-async function searchViaLocalAPI(stopName) {
-  if (!NAVER_API_KEY_ID || !NAVER_API_KEY) {
-    throw new Error('네이버 API 키가 설정되지 않았습니다.');
-  }
+// 네이버 검색 API (Local API)는 더 이상 사용하지 않음
+// 네이버 클라우드 플랫폼 Geocoding API만 사용
+// (searchViaLocalAPI 함수는 제거됨)
 
-  try {
-    const response = await axiosInstance.get('https://openapi.naver.com/v1/search/local.json', {
-      params: {
-        query: stopName,
-        display: 5,
-        sort: 'random'
-      },
-      headers: {
-        'X-Naver-Client-Id': NAVER_API_KEY_ID,
-        'X-Naver-Client-Secret': NAVER_API_KEY
-      }
-    });
-
-    if (response.data.items && response.data.items.length > 0) {
-      let bestMatch = null;
-      let bestScore = -Infinity;
-
-      for (const item of response.data.items) {
-        const addressText = item.roadAddress || item.address || '';
-        const titleText = (item.title || '').replace(/<[^>]*>/g, '');
-        const score = calculateMatchScore(stopName, addressText, titleText);
-        if (score > bestScore) {
-          bestScore = score;
-          bestMatch = item;
-        }
-      }
-
-      if (bestMatch) {
-        const converted = convertNaverToWGS84(parseFloat(bestMatch.mapx), parseFloat(bestMatch.mapy));
-        const addressText = bestMatch.roadAddress || bestMatch.address || null;
-        const titleText = (bestMatch.title || '').replace(/<[^>]*>/g, '');
-
-        return {
-          success: true,
-          latitude: converted.lat,
-          longitude: converted.lng,
-          naverPlaceId: null,
-          address: addressText,
-          title: titleText || stopName,
-          score: bestScore
-        };
-      }
-    }
-
-    return {
-      success: false,
-      error: '검색 결과가 없습니다.'
-    };
-  } catch (error) {
-    if (error.response) {
-      console.error(`네이버 Local API 오류 (${error.response.status}):`, error.response.data);
-      return {
-        success: false,
-        error: `네이버 Local API 오류: ${error.response.status}`
-      };
-    }
-
-    console.error('네이버 Local API 요청 실패:', error.message);
-    return {
-      success: false,
-      error: '네이버 Local API 요청 실패'
-    };
-  }
-}
-
-// 네이버 API로 정류장 좌표 조회 (Geocode 우선, 실패 시 Local API)
+// 네이버 클라우드 플랫폼 Geocoding API로 정류장 좌표 조회
 async function searchStopCoordinatesV2(stopName) {
+  // 네이버 클라우드 플랫폼 Geocoding API만 사용
   const geocodeResult = await searchViaGeocoding(stopName);
-  if (geocodeResult.success && geocodeResult.score >= 10) {
-    return geocodeResult;
-  }
-
-  const localResult = await searchViaLocalAPI(stopName);
-  if (localResult.success) {
-    return localResult;
-  }
-
-  // Geocode 결과가 있으나 점수가 낮은 경우라도 fallback
   if (geocodeResult.success) {
     return geocodeResult;
   }
 
-  return localResult;
+  // Geocoding API 실패 시 에러 반환
+  return geocodeResult;
 }
 
 module.exports = {
