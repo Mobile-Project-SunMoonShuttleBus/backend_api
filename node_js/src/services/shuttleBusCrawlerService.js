@@ -105,7 +105,14 @@ function normalizeDeparture(departure) {
     '하이렉스파건너편': '하이렉스파 건너편',
     '용암마을': '용암마을',
     '탕정역': '탕정역',
-    '탕정 역': '탕정역'
+    '탕정 역': '탕정역',
+    '두정동 맥도날드': '두정동 맥도날드',
+    '맥도날드': '두정동 맥도날드',
+    '홈마트 에브리데이': '홈마트 에브리데이',
+    '홈마트': '홈마트 에브리데이',
+    '에브리데이': '홈마트 에브리데이',
+    '서울대정병원': '서울대정병원',
+    '서울대 정병원': '서울대정병원'
   };
   return normalized[departure] || departure;
 }
@@ -132,7 +139,14 @@ function normalizeArrival(arrival) {
     '하이렉스파건너편': '하이렉스파 건너편',
     '용암마을': '용암마을',
     '탕정역': '탕정역',
-    '탕정 역': '탕정역'
+    '탕정 역': '탕정역',
+    '두정동 맥도날드': '두정동 맥도날드',
+    '맥도날드': '두정동 맥도날드',
+    '홈마트 에브리데이': '홈마트 에브리데이',
+    '홈마트': '홈마트 에브리데이',
+    '에브리데이': '홈마트 에브리데이',
+    '서울대정병원': '서울대정병원',
+    '서울대 정병원': '서울대정병원'
   };
   return normalized[arrival] || arrival;
 }
@@ -425,7 +439,16 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
                                normalizedCellText.includes('역') || 
                                normalizedCellText.includes('터미널') ||
                                normalizedCellText.includes('건너편') ||
-                               normalizedCellText.includes('마을');
+                               normalizedCellText.includes('마을') ||
+                               normalizedCellText.includes('맥도날드') ||
+                               normalizedCellText.includes('홈마트') ||
+                               normalizedCellText.includes('에브리데이') ||
+                               normalizedCellText.includes('서울대정병원') ||
+                               normalizedCellText.includes('병원') ||
+                               normalizedCellText.includes('아파트') ||
+                               normalizedCellText.includes('버스정류장') ||
+                               normalizedCellText.includes('초등학교') ||
+                               normalizedCellText.includes('권곡');
         
         // 출발 컬럼 조건
         const isDepartureColumn = (hasDepartureKeyword || hasLocationName) && !hasArrivalKeyword;
@@ -472,6 +495,18 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
           // 용암마을
           else if (normalizedCellText.includes('용암마을')) {
             departureColIndices['용암마을'] = cellIdx;
+          }
+          // 두정동 맥도날드
+          else if (normalizedCellText.includes('두정동') && normalizedCellText.includes('맥도날드')) {
+            departureColIndices['두정동 맥도날드'] = cellIdx;
+          }
+          // 홈마트 에브리데이
+          else if (normalizedCellText.includes('홈마트') || normalizedCellText.includes('에브리데이')) {
+            departureColIndices['홈마트 에브리데이'] = cellIdx;
+          }
+          // 서울대정병원
+          else if (normalizedCellText.includes('서울대정병원') || (normalizedCellText.includes('서울대') && normalizedCellText.includes('병원'))) {
+            departureColIndices['서울대정병원'] = cellIdx;
           }
           // 기타 패턴 대비 (추가 확장 용도)
         }
@@ -559,7 +594,8 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
             const viaStopsForRoute = [];
             for (const { idx: otherIdx, name: otherName } of validStopColumns) {
               if (otherIdx === idx) continue;
-              const otherTimeText = $(cells[otherIdx]).text();
+              const otherCell = cells.eq(otherIdx);
+              const otherTimeText = otherCell.text().trim();
               const otherTime = extractTimeValue(otherTimeText);
               if (otherTime) {
                 // 출발 시간보다 늦으면 경유지
@@ -572,15 +608,23 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
                     source: 'table'
                   });
                 }
+              } else if (otherTimeText && (otherTimeText.includes('경유') || !/^[XΧ]+$/i.test(otherTimeText))) {
+                // 시간이 없어도 "경유" 텍스트가 있거나 빈 셀이 아니면 경유지로 추가
+                viaStopsForRoute.push({
+                  name: otherName,
+                  time: null,
+                  source: 'table'
+                });
               }
             }
             mergeViaStops(viaStopsForRoute, viaStopsFromNote);
 
+            // 도착시간이 없으면 X로 저장
             schedules.push({
               departure: name,
               arrival: '아산캠퍼스',
               departureTime,
-              arrivalTime,
+              arrivalTime: arrivalTime || 'X',
               fridayOperates,
               dayType,
               note: noteText || '',
@@ -605,7 +649,8 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
                 const viaStopsForRoute = [];
                 for (const { idx: otherIdx, name: otherName } of validStopColumns) {
                   if (otherIdx === idx) continue;
-                  const otherTimeText = $(cells[otherIdx]).text();
+                  const otherCell = cells.eq(otherIdx);
+                  const otherTimeText = otherCell.text().trim();
                   const otherTime = extractTimeValue(otherTimeText);
                   if (otherTime) {
                     // 출발~도착 시간 사이면 경유지
@@ -620,15 +665,23 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
                         source: 'table'
                       });
                     }
+                  } else if (otherTimeText && (otherTimeText.includes('경유') || !/^[XΧ]+$/i.test(otherTimeText))) {
+                    // 시간이 없어도 "경유" 텍스트가 있거나 빈 셀이 아니면 경유지로 추가
+                    viaStopsForRoute.push({
+                      name: otherName,
+                      time: null,
+                      source: 'table'
+                    });
                   }
                 }
                 mergeViaStops(viaStopsForRoute, viaStopsFromNote);
 
+                // 도착시간이 없으면 X로 저장
                 schedules.push({
                   departure: '아산캠퍼스',
                   arrival: name,
                   departureTime: campusDepartureTime,
-                  arrivalTime: stopTime,
+                  arrivalTime: stopTime || 'X',
                   fridayOperates,
                   dayType,
                   note: noteText || '',
@@ -702,12 +755,19 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
         for (const [stopName, idx] of intermediateEntries) {
           if (idx === undefined || idx >= cells.length) continue;
           const cell = cells.eq(idx);
-          const rawValue = cell.text();
+          const rawValue = cell.text().trim();
           const timeValue = extractTimeValue(rawValue);
           if (timeValue) {
             viaStopsFromColumns.push({
               name: stopName,
               time: timeValue,
+              source: 'table'
+            });
+          } else if (rawValue && !/^[XΧ]+$/i.test(rawValue)) {
+            // 시간이 없어도 텍스트가 있으면 경유지로 추가 (예: "5분~10분 소요예상", "하이렉스파 건너편" 등)
+            viaStopsFromColumns.push({
+              name: stopName,
+              time: null,
               source: 'table'
             });
           } else {
@@ -724,11 +784,12 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
           if (campusTime) {
             const campusViaStops = [];
             mergeViaStops(campusViaStops, viaStopsFromNote);
+            // 도착시간이 없으면 X로 저장
             schedules.push({
               departure: '아산캠퍼스',
               arrival: '천안 아산역',
               departureTime: campusTime,
-              arrivalTime: null,
+              arrivalTime: arrivalTime || 'X',
               fridayOperates,
               dayType,
               note: noteText || '',
@@ -746,11 +807,12 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
             const stationViaStops = [];
             mergeViaStops(stationViaStops, viaStopsFromColumns);
             mergeViaStops(stationViaStops, viaStopsFromNote);
+            // 도착시간이 없으면 X로 저장
             schedules.push({
               departure: '천안 아산역',
               arrival: '아산캠퍼스',
               departureTime: stationTime,
-              arrivalTime: arrivalTime,
+              arrivalTime: arrivalTime || 'X',
               fridayOperates,
               dayType,
               note: noteText || '',
@@ -824,12 +886,19 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
         for (const [stopName, idx] of intermediateEntries) {
           if (idx === undefined || idx >= cells.length) continue;
           const cell = cells.eq(idx);
-          const rawValue = cell.text();
+          const rawValue = cell.text().trim();
           const timeValue = extractTimeValue(rawValue);
           if (timeValue) {
             viaStopsFromColumns.push({
               name: stopName,
               time: timeValue,
+              source: 'table'
+            });
+          } else if (rawValue && !/^[XΧ]+$/i.test(rawValue)) {
+            // 시간이 없어도 텍스트가 있으면 경유지로 추가 (예: "5분~10분 소요예상", "하이렉스파 건너편" 등)
+            viaStopsFromColumns.push({
+              name: stopName,
+              time: null,
               source: 'table'
             });
           } else {
@@ -846,11 +915,12 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
           if (asanTime) {
             const campusViaStops = [];
             mergeViaStops(campusViaStops, viaStopsFromNote);
+            // 도착시간이 없으면 X로 저장
             schedules.push({
               departure: '아산캠퍼스',
               arrival: '천안역',
               departureTime: asanTime,
-              arrivalTime: null,
+              arrivalTime: arrivalTime || 'X',
               fridayOperates,
               dayType,
               note: noteText || '',
@@ -868,11 +938,12 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
             const cheonanViaStops = [];
             mergeViaStops(cheonanViaStops, viaStopsFromColumns);
             mergeViaStops(cheonanViaStops, viaStopsFromNote);
+            // 도착시간이 없으면 X로 저장
             schedules.push({
               departure: '천안역',
               arrival: '아산캠퍼스',
               departureTime: cheonanTime,
-              arrivalTime,
+              arrivalTime: arrivalTime || 'X',
               fridayOperates,
               dayType,
               note: noteText || '',
@@ -939,12 +1010,19 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
         for (const [stopName, idx] of intermediateEntries) {
           if (idx === undefined || idx >= cells.length) continue;
           const cell = cells.eq(idx);
-          const rawValue = cell.text();
+          const rawValue = cell.text().trim();
           const timeValue = extractTimeValue(rawValue);
           if (timeValue) {
             viaStopsFromColumns.push({
               name: stopName,
               time: timeValue,
+              source: 'table'
+            });
+          } else if (rawValue && !/^[XΧ]+$/i.test(rawValue)) {
+            // 시간이 없어도 텍스트가 있으면 경유지로 추가 (예: "5분~10분 소요예상", "하이렉스파 건너편" 등)
+            viaStopsFromColumns.push({
+              name: stopName,
+              time: null,
               source: 'table'
             });
           } else {
@@ -961,16 +1039,17 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
             if (asanTime) {
             const campusViaStops = [];
             mergeViaStops(campusViaStops, viaStopsFromNote);
+              // 도착시간이 없으면 X로 저장
               schedules.push({
                 departure: '아산캠퍼스',
                 arrival: '천안 터미널',
                 departureTime: asanTime,
-              arrivalTime: null,
+                arrivalTime: arrivalTime || 'X',
                 fridayOperates,
                 dayType,
                 note: noteText || '',
-              viaStops: campusViaStops,
-              studentHallBoardingAvailable: hasHighlight(asanCell),
+                viaStops: campusViaStops,
+                studentHallBoardingAvailable: hasHighlight(asanCell),
                 sourceUrl: CRAWL_URLS[dayType]?.[expectedDeparture] || ''
               });
             }
@@ -983,16 +1062,17 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
             const terminalViaStops = [];
             mergeViaStops(terminalViaStops, viaStopsFromColumns);
             mergeViaStops(terminalViaStops, viaStopsFromNote);
+              // 도착시간이 없으면 X로 저장
               schedules.push({
                 departure: '천안 터미널',
                 arrival: '아산캠퍼스',
                 departureTime: terminalTime,
-              arrivalTime,
+                arrivalTime: arrivalTime || 'X',
                 fridayOperates,
                 dayType,
                 note: noteText || '',
-              viaStops: terminalViaStops,
-              studentHallBoardingAvailable: hasHighlight(terminalCell),
+                viaStops: terminalViaStops,
+                studentHallBoardingAvailable: hasHighlight(terminalCell),
                 sourceUrl: CRAWL_URLS[dayType]?.[expectedDeparture] || ''
               });
             }
@@ -1161,11 +1241,12 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
         }
         
         if (finalDeparture !== finalArrival) {
+              // 도착시간이 없으면 X로 저장
           schedules.push({
             departure: finalDeparture,
             arrival: finalArrival,
             departureTime: departureTime,
-            arrivalTime: null,
+            arrivalTime: 'X',
             fridayOperates: fridayOperates,
             dayType: dayType,
             note: note || '',

@@ -190,9 +190,19 @@ exports.getCampusSchedules = async (req, res) => {
     const schedules = await query.exec();
     const total = await CampusBus.countDocuments(filter);
 
+    // arrivalTime이 null이면 X로 변환
+    const formattedSchedules = schedules.map(schedule => {
+      const scheduleObj = schedule.toObject ? schedule.toObject() : schedule;
+      const arrivalTime = scheduleObj.arrivalTime;
+      return {
+        ...scheduleObj,
+        arrivalTime: (arrivalTime !== null && arrivalTime !== undefined && arrivalTime !== 'X') ? arrivalTime : 'X'
+      };
+    });
+
     res.json({
       total,
-      count: schedules.length,
+      count: formattedSchedules.length,
       page: pageSize > 0 ? pageNumber : null,
       limit: pageSize > 0 ? pageSize : null,
       filters: {
@@ -204,12 +214,12 @@ exports.getCampusSchedules = async (req, res) => {
         direction: direction || null,
         startTime: startTime || null
       },
-      viaStopsSummary: schedules
+      viaStopsSummary: formattedSchedules
         .filter(s => s.viaStops && s.viaStops.length > 0)
         .flatMap(s => s.viaStops.map(v => v.name))
         .filter((name, idx, arr) => arr.indexOf(name) === idx)
         .sort(),
-      data: schedules
+      data: formattedSchedules
     });
   } catch (e) {
     console.error('통학버스 시간표 조회 오류:', e);
