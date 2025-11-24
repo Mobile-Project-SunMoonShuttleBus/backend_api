@@ -119,6 +119,7 @@ const initializeDatabase = async () => {
     require('../models/BusStop');
     require('../models/CrowdReport');
     require('../models/TokenBlacklist');
+    require('../models/ShuttleNotice');
     
     // 테이블 생성
     const User = mongoose.model('User');
@@ -131,6 +132,7 @@ const initializeDatabase = async () => {
     const BusStop = mongoose.model('BusStop');
     const CrowdReport = mongoose.model('CrowdReport');
     const TokenBlacklist = mongoose.model('TokenBlacklist');
+    const ShuttleNotice = mongoose.model('ShuttleNotice'); // ✅ 셔틀 공지 모델 추가
     
     // 컬럼 생성
     await User.createIndexes();
@@ -143,6 +145,7 @@ const initializeDatabase = async () => {
     await BusStop.createIndexes();
     await CrowdReport.createIndexes();
     await TokenBlacklist.createIndexes();
+    await ShuttleNotice.createIndexes(); // ✅ 셔틀 공지 인덱스 생성
     
     console.log('데이터베이스 초기화 완료');
   } catch (error) {
