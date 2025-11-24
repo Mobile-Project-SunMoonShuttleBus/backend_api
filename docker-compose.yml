@@ -1,5 +1,6 @@
 services:
   main_server:
+    # platform: linux/amd64  # 로컬 테스트용으로 주석 처리 (Rosetta 활성화 필요)
     build: 
       context: ./node_js
       args:

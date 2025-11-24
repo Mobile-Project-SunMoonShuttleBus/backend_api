@@ -104,7 +104,13 @@ router.post('/logout', authToken, logout);
  *     tags: [Auth]
  *     security:
  *       - bearerAuth: []
- *     description: 인증된 사용자의 학교 포털 계정 정보를 저장합니다. JWT 토큰이 필요합니다.
+ *     description: |
+ *       인증된 사용자의 학교 포털 계정 정보를 저장합니다. JWT 토큰이 필요합니다.
+ *       
+ *       **자동 크롤링:**
+ *       - 계정 정보 저장 후 자동으로 시간표 크롤링이 백그라운드에서 실행됩니다.
+ *       - 크롤링 완료까지 약 10~30초 소요됩니다.
+ *       - 크롤링 결과는 `/api/timetable` API로 조회할 수 있습니다.
  *     requestBody:
  *       required: true
  *       content:
@@ -126,6 +132,17 @@ router.post('/logout', authToken, logout);
  *     responses:
  *       200:
  *         description: 저장 성공
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "계정 정보 저장 완료"
+ *                 note:
+ *                   type: string
+ *                   example: "시간표 크롤링이 백그라운드에서 진행 중입니다."
  *       401:
  *         description: 인증 실패
  *       500:

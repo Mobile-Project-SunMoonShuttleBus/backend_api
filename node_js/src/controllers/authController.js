@@ -151,7 +151,21 @@ const saveSchoolAccount = async (req, res) => {
       }
     );
 
-    res.status(200).json({ message: '계정 정보 저장 완료' });
+    const { crawlAndSaveTimetable } = require('../services/timetableCrawlerService');
+    crawlAndSaveTimetable(userId).then(result => {
+      if (result.success) {
+        console.log(`시간표 자동 크롤링 완료: 사용자 ${userId}, ${result.count}개 저장`);
+      } else {
+        console.error(`시간표 자동 크롤링 실패: 사용자 ${userId}, ${result.error}`);
+      }
+    }).catch(error => {
+      console.error(`시간표 자동 크롤링 오류: 사용자 ${userId}`, error.message);
+    });
+
+    res.status(200).json({ 
+      message: '계정 정보 저장 완료',
+      note: '시간표 크롤링이 백그라운드에서 진행 중입니다.'
+    });
   } catch (error) {
     console.error('학교 계정 저장 오류:', error);
     res.status(500).json({ 

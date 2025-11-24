@@ -32,6 +32,7 @@ app.use('/api/auth', require('./routes/authRoutes'));
 app.use('/api/shuttle', require('./routes/shuttleRoutes'));
 app.use('/api/campus', require('./routes/campusRoutes'));
 app.use('/api/stops', require('./routes/stopRoutes'));
+app.use('/api/timetable', require('./routes/timetableRoutes'));
 
 // Swagger 설정 (라우트 설정 후 등록해 경로 충돌 방지)
 swaggerSetup(app);
@@ -44,6 +45,10 @@ app.get('/', (req, res) => {
 // 셔틀버스 스케줄러 시작
 const shuttleBusScheduler = require('./services/shuttleBusScheduler');
 shuttleBusScheduler.startScheduler();
+
+// 시간표 자동 크롤링 스케줄러 시작
+const timetableScheduler = require('./services/timetableScheduler');
+timetableScheduler.startScheduler();
 
 // 서버 시작
 app.listen(PORT, HOST, () => {

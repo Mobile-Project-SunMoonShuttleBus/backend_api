@@ -1,5 +1,5 @@
 const mongoose = require('mongoose');
-const bcrypt = require('bcrypt');
+const { encrypt, decrypt } = require('../utils/encryption');
 
 const schoolAccountSchema = new mongoose.Schema({
   userId: {
@@ -25,27 +25,65 @@ const schoolAccountSchema = new mongoose.Schema({
   updatedAt: {
     type: Date,
     default: Date.now
+  },
+  crawlingStatus: {
+    type: String,
+    enum: ['idle', 'crawling', 'completed', 'failed'],
+    default: 'idle'
+  },
+  lastCrawledAt: {
+    type: Date,
+    default: null
+  },
+  crawlingError: {
+    type: String,
+    default: null
   }
 });
 
-// 학교 비밀번호 해시 (저장 전)
 schoolAccountSchema.pre('save', async function(next) {
   if (!this.isModified('schoolPassword')) {
-    return next()
+    return next();
   }
   
-  // 솔트 기법 사용
   try {
-    const salt = await bcrypt.genSalt(10);
-    this.schoolPassword = await bcrypt.hash(this.schoolPassword, salt);
+    this.schoolPassword = encrypt(this.schoolPassword);
     next();
   } catch (error) {
     next(error);
   }
 });
 
-// 업데이트 시간 자동 갱신
-schoolAccountSchema.pre('findOneAndUpdate', function(next) {
+schoolAccountSchema.methods.getDecryptedPassword = function() {
+  try {
+    return decrypt(this.schoolPassword);
+  } catch (error) {
+    console.error('비밀번호 복호화 오류:', error);
+    return null;
+  }
+};
+
+schoolAccountSchema.pre('findOneAndUpdate', async function(next) {
+  const update = this.getUpdate();
+  
+  if (update && update.schoolPassword) {
+    try {
+      if (update.$set) {
+        update.$set.schoolPassword = encrypt(update.$set.schoolPassword);
+      } else {
+        update.schoolPassword = encrypt(update.schoolPassword);
+      }
+    } catch (error) {
+      return next(error);
+    }
+  } else if (update && update.$set && update.$set.schoolPassword) {
+    try {
+      update.$set.schoolPassword = encrypt(update.$set.schoolPassword);
+    } catch (error) {
+      return next(error);
+    }
+  }
+  
   this.set({ updatedAt: new Date() });
   next();
 });

@@ -1,5 +1,16 @@
 FROM node:20-alpine
 
+# Puppeteer를 위한 의존성 설치 (Chromium 포함)
+RUN apk add --no-cache \
+    chromium \
+    nss \
+    freetype \
+    freetype-dev \
+    harfbuzz \
+    ca-certificates \
+    ttf-freefont \
+    && rm -rf /var/cache/apk/*
+
 # 보안: non-root user 사용
 RUN addgroup -g 1001 -S nodejs && \
     adduser -S nodejs -u 1001
@@ -13,6 +24,10 @@ RUN npm install
 COPY --chown=nodejs:nodejs . .
 
 USER nodejs
+
+# Puppeteer가 시스템 Chromium을 사용하도록 설정
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
 EXPOSE $PORT
 
