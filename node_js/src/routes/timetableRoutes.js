@@ -46,7 +46,7 @@ const { authToken } = require('../middleware/auth');
  *                     - completed
  *                     - failed
  *                   example: "completed"
- *                   description: 크롤링 상태 (idle: 대기, crawling: 진행중, completed: 완료, failed: 실패)
+ *                   description: "크롤링 상태 (idle: 대기, crawling: 진행중, completed: 완료, failed: 실패)"
  *                 statusMessage:
  *                   type: string
  *                   nullable: true
@@ -60,7 +60,7 @@ const { authToken } = require('../middleware/auth');
  *                   description: 마지막 크롤링 시간
  *                 timetable:
  *                   type: object
- *                   description: 요일별로 그룹화된 시간표 (키: 월, 화, 수, 목, 금, 토, 일)
+ *                   description: "요일별로 그룹화된 시간표 (키: 월, 화, 수, 목, 금, 토, 일)"
  *                   additionalProperties:
  *                     type: array
  *                     items:
@@ -72,11 +72,11 @@ const { authToken } = require('../middleware/auth');
  *                         startTime:
  *                           type: string
  *                           example: "9:30"
- *                           description: 시작 시간 (HH:MM 형식)
+ *                           description: "시작 시간 (HH:MM 형식)"
  *                         endTime:
  *                           type: string
  *                           example: "10:20"
- *                           description: 종료 시간 (HH:MM 형식)
+ *                           description: "종료 시간 (HH:MM 형식)"
  *                         location:
  *                           type: string
  *                           nullable: true
