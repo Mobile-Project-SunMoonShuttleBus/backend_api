@@ -82,7 +82,7 @@ const { authToken } = require('../middleware/auth');
  *                           nullable: true
  *                           example: "이정빈"
  *                   example:
- *                     "월":
+ *                     월:
  *                       - subjectName: "모바일프로그래밍 11반"
  *                         startTime: "9:30"
  *                         endTime: "10:20"
@@ -93,7 +93,7 @@ const { authToken } = require('../middleware/auth');
  *                         endTime: "11:20"
  *                         location: "인문 410"
  *                         professor: "이정빈"
- *                     "화":
+ *                     화:
  *                       - subjectName: "웹프레임워크(백엔드) 11반"
  *                         startTime: "12:30"
  *                         endTime: "13:20"
