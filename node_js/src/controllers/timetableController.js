@@ -37,6 +37,13 @@ exports.getTimetable = async (req, res) => {
       statusMessage = '포털 계정 정보가 저장되지 않았습니다. 계정 정보를 저장하면 시간표가 자동으로 크롤링됩니다.';
     }
 
+    // 시간 문자열을 숫자로 변환하는 함수 (예: "9:30" -> 930, "10:30" -> 1030)
+    const timeToNumber = (timeStr) => {
+      if (!timeStr) return 0;
+      const [hour, minute] = timeStr.split(':').map(Number);
+      return hour * 100 + (minute || 0);
+    };
+
     const days = ['월', '화', '수', '목', '금', '토', '일'];
     const groupedByDay = {};
 
@@ -49,7 +56,8 @@ exports.getTimetable = async (req, res) => {
           endTime: item.endTime,
           location: item.location || null,
           professor: item.professor || null
-        }));
+        }))
+        .sort((a, b) => timeToNumber(a.startTime) - timeToNumber(b.startTime));
     });
 
     const response = {
