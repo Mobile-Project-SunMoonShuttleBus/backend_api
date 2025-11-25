@@ -56,58 +56,33 @@ const { authToken } = require('../middleware/auth');
  *                   description: 마지막 크롤링 시간
  *                 timetable:
  *                   type: object
- *                   description: 요일별로 그룹화된 시간표
- *                   properties:
- *                     월:
- *                       type: array
- *                       items:
- *                         type: object
- *                         properties:
- *                           subjectName:
- *                             type: string
- *                             example: "모바일프로그래밍 11반"
- *                           startTime:
- *                             type: string
- *                             example: "9:30"
- *                             description: 시작 시간 (HH:MM 형식)
- *                           endTime:
- *                             type: string
- *                             example: "10:20"
- *                             description: 종료 시간 (HH:MM 형식)
- *                           location:
- *                             type: string
- *                             nullable: true
- *                             example: "인문 410"
- *                           professor:
- *                             type: string
- *                             nullable: true
- *                             example: "이정빈"
- *                     화:
- *                       type: array
- *                       items:
- *                         type: object
- *                     수:
- *                       type: array
- *                       items:
- *                         type: object
- *                     목:
- *                       type: array
- *                       items:
- *                         type: object
- *                     금:
- *                       type: array
- *                       items:
- *                         type: object
- *                     토:
- *                       type: array
- *                       items:
- *                         type: object
- *                     일:
- *                       type: array
- *                       items:
- *                         type: object
+ *                   description: 요일별로 그룹화된 시간표 (키: 월, 화, 수, 목, 금, 토, 일)
+ *                   additionalProperties:
+ *                     type: array
+ *                     items:
+ *                       type: object
+ *                       properties:
+ *                         subjectName:
+ *                           type: string
+ *                           example: "모바일프로그래밍 11반"
+ *                         startTime:
+ *                           type: string
+ *                           example: "9:30"
+ *                           description: 시작 시간 (HH:MM 형식)
+ *                         endTime:
+ *                           type: string
+ *                           example: "10:20"
+ *                           description: 종료 시간 (HH:MM 형식)
+ *                         location:
+ *                           type: string
+ *                           nullable: true
+ *                           example: "인문 410"
+ *                         professor:
+ *                           type: string
+ *                           nullable: true
+ *                           example: "이정빈"
  *                   example:
- *                     월:
+ *                     "월":
  *                       - subjectName: "모바일프로그래밍 11반"
  *                         startTime: "9:30"
  *                         endTime: "10:20"
@@ -118,7 +93,7 @@ const { authToken } = require('../middleware/auth');
  *                         endTime: "11:20"
  *                         location: "인문 410"
  *                         professor: "이정빈"
- *                     화:
+ *                     "화":
  *                       - subjectName: "웹프레임워크(백엔드) 11반"
  *                         startTime: "12:30"
  *                         endTime: "13:20"
@@ -134,4 +109,3 @@ const { authToken } = require('../middleware/auth');
 router.get('/', authToken, timetableController.getTimetable);
 
 module.exports = router;
-
