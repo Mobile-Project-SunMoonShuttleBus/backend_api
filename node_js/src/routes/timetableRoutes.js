@@ -40,7 +40,11 @@ const { authToken } = require('../middleware/auth');
  *                   description: 전체 시간표 항목 개수
  *                 crawlingStatus:
  *                   type: string
- *                   enum: [idle, crawling, completed, failed]
+ *                   enum:
+ *                     - idle
+ *                     - crawling
+ *                     - completed
+ *                     - failed
  *                   example: "completed"
  *                   description: 크롤링 상태 (idle: 대기, crawling: 진행중, completed: 완료, failed: 실패)
  *                 statusMessage:
