@@ -13,15 +13,28 @@ const {
  * POST /api/notices/shuttle/sync
  */
 exports.syncNotices = async (req, res) => {
+  // 전체 작업 타임아웃 설정 (60초)
+  const timeoutPromise = new Promise((_, reject) => {
+    setTimeout(() => {
+      reject(new Error('동기화 작업이 60초를 초과했습니다.'));
+    }, 60000);
+  });
+
   try {
-    const result = await syncShuttleNotices();
+    const result = await Promise.race([
+      syncShuttleNotices(),
+      timeoutPromise
+    ]);
     res.json(result);
   } catch (e) {
-    console.error(e);
+    console.error('셔틀 공지 동기화 실패:', e);
     // 에러 메시지 노출 최소화 (보안)
+    const errorMessage = e.message && e.message.includes('60초') 
+      ? '동기화 작업 시간 초과'
+      : '셔틀 공지 동기화 실패';
     res
       .status(500)
-      .json({ message: '셔틀 공지 동기화 실패' });
+      .json({ message: errorMessage });
   }
 };
 

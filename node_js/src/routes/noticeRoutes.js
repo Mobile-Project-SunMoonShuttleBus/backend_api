@@ -13,7 +13,7 @@ const noticeController = require('../controllers/noticeController');
  * /notices/shuttle/sync:
  *   post:
  *     summary: 셔틀 공지 동기화
- *     description: 포털에서 공지를 수집하고 LLM으로 분류하여 셔틀 관련 공지만 DB에 저장
+ *     description: 포털에서 공지를 수집하고 LLM으로 분류하여 셔틀 관련 공지만 DB에 저장. 전체 작업은 60초 내에 완료됩니다.
  *     tags: [Notices]
  *     responses:
  *       200:
@@ -26,8 +26,28 @@ const noticeController = require('../controllers/noticeController');
  *                 message:
  *                   type: string
  *                   example: 셔틀 공지 동기화 완료
+ *                 processed:
+ *                   type: number
+ *                   description: 처리된 공지 개수
+ *                   example: 50
+ *                 shuttleRelated:
+ *                   type: number
+ *                   description: 셔틀 관련 공지 개수 (DB에 저장된 개수)
+ *                   example: 5
+ *                 errors:
+ *                   type: number
+ *                   description: 처리 중 발생한 오류 개수
+ *                   example: 0
  *       500:
- *         description: 동기화 실패
+ *         description: 동기화 실패 (크롤링 실패, Ollama 서버 오류, 타임아웃 등)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: 셔틀 공지 동기화 실패
  */
 // 셔틀 공지 동기화 (개발/운영용 - 나중에 관리자 권한 필요시 보호)
 router.post('/shuttle/sync', noticeController.syncNotices);

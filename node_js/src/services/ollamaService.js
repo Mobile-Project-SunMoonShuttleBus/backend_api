@@ -18,11 +18,12 @@ const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'llama3.2:3b';
  * @returns {Promise<boolean>} 셔틀 관련 여부 (true: 셔틀 관련, false: 무관)
  */
 async function isShuttleRelatedNotice(title, content) {
-  // 입력 검증 및 정제 (프롬프트 인젝션 방지)
-  const sanitizedTitle = (title || '').trim().substring(0, 500); // 최대 500자
-  const sanitizedContent = (content || '').trim().substring(0, 5000); // 최대 5000자
-  
-  const prompt = `
+  try {
+    // 입력 검증 및 정제 (프롬프트 인젝션 방지)
+    const sanitizedTitle = (title || '').trim().substring(0, 500); // 최대 500자
+    const sanitizedContent = (content || '').trim().substring(0, 5000); // 최대 5000자
+    
+    const prompt = `
 다음 공지가 "셔틀버스/통학버스/학교 셔틀 운행"과 관련된 공지인지 판별해라.
 YES 또는 NO 중 하나만 출력해라.
 
@@ -35,14 +36,29 @@ ${sanitizedContent}
 답:
 `.trim();
 
-  const res = await axios.post(`${OLLAMA_BASE_URL}/api/generate`, {
-    model: OLLAMA_MODEL,
-    prompt,
-    stream: false,
-  });
+    const res = await axios.post(
+      `${OLLAMA_BASE_URL}/api/generate`,
+      {
+        model: OLLAMA_MODEL,
+        prompt,
+        stream: false,
+      },
+      {
+        timeout: 30000, // 30초 타임아웃
+      }
+    );
 
-  const answer = (res.data.response || '').trim().toUpperCase();
-  return answer.startsWith('Y'); // YES, Yes 등
+    const answer = (res.data.response || '').trim().toUpperCase();
+    return answer.startsWith('Y'); // YES, Yes 등
+  } catch (error) {
+    // Ollama 서버가 꺼져 있거나 연결 실패 시 에러 로깅 후 false 반환
+    console.error(`Ollama 호출 실패 (isShuttleRelatedNotice):`, error.message);
+    if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
+      console.warn(`Ollama 서버에 연결할 수 없습니다 (${OLLAMA_BASE_URL}). 기본값 false 반환.`);
+    }
+    // Ollama 실패 시 안전하게 false 반환 (셔틀 관련이 아닌 것으로 간주)
+    return false;
+  }
 }
 
 /**
@@ -52,11 +68,12 @@ ${sanitizedContent}
  * @returns {Promise<string>} 한글 요약 (3~5줄)
  */
 async function summarizeNotice(title, content) {
-  // 입력 검증 및 정제 (프롬프트 인젝션 방지)
-  const sanitizedTitle = (title || '').trim().substring(0, 500); // 최대 500자
-  const sanitizedContent = (content || '').trim().substring(0, 5000); // 최대 5000자
-  
-  const prompt = `
+  try {
+    // 입력 검증 및 정제 (프롬프트 인젝션 방지)
+    const sanitizedTitle = (title || '').trim().substring(0, 500); // 최대 500자
+    const sanitizedContent = (content || '').trim().substring(0, 5000); // 최대 5000자
+    
+    const prompt = `
 다음은 대학교 셔틀버스 관련 공지사항이다.
 학생들이 핵심 정보만 빠르게 볼 수 있도록 요약해라.
 
@@ -75,13 +92,28 @@ ${sanitizedContent}
 요약:
 `.trim();
 
-  const res = await axios.post(`${OLLAMA_BASE_URL}/api/generate`, {
-    model: OLLAMA_MODEL,
-    prompt,
-    stream: false,
-  });
+    const res = await axios.post(
+      `${OLLAMA_BASE_URL}/api/generate`,
+      {
+        model: OLLAMA_MODEL,
+        prompt,
+        stream: false,
+      },
+      {
+        timeout: 30000, // 30초 타임아웃
+      }
+    );
 
-  return (res.data.response || '').trim();
+    return (res.data.response || '').trim();
+  } catch (error) {
+    // Ollama 서버가 꺼져 있거나 연결 실패 시 에러 로깅 후 기본 메시지 반환
+    console.error(`Ollama 호출 실패 (summarizeNotice):`, error.message);
+    if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
+      console.warn(`Ollama 서버에 연결할 수 없습니다 (${OLLAMA_BASE_URL}). 기본 요약 반환.`);
+    }
+    // Ollama 실패 시 기본 요약 반환
+    return '요약을 생성할 수 없습니다.';
+  }
 }
 
 module.exports = {

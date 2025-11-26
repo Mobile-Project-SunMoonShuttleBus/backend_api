@@ -300,39 +300,79 @@ async function fetchPortalNoticesFromPortal(maxNotices = 50) {
  * @returns {Promise<Object>} 동기화 결과
  */
 async function syncShuttleNotices() {
-  // 실제 포털 크롤링 사용 (환경 변수로 Mock/실제 전환 가능)
-  const useMock = process.env.USE_NOTICE_MOCK === 'true';
-  const rawList = useMock 
-    ? await fetchPortalNoticesMock() 
-    : await fetchPortalNoticesFromPortal();
+  try {
+    console.log('셔틀 공지 동기화 시작...');
+    
+    // 실제 포털 크롤링 사용 (환경 변수로 Mock/실제 전환 가능)
+    const useMock = process.env.USE_NOTICE_MOCK === 'true';
+    console.log(`크롤링 모드: ${useMock ? 'Mock' : '실제 포털'}`);
+    
+    const rawList = useMock 
+      ? await fetchPortalNoticesMock() 
+      : await fetchPortalNoticesFromPortal();
 
-  for (const notice of rawList) {
-    // LLM으로 셔틀 관련 여부 판별
-    const isShuttle = await isShuttleRelatedNotice(
-      notice.title,
-      notice.content
-    );
-    if (!isShuttle) continue; // 셔틀 관련이 아니면 스킵
+    console.log(`수집된 공지 개수: ${rawList.length}개`);
 
-    // 셔틀 관련 공지만 DB에 저장 (portalNoticeId 기준으로 upsert)
-    await ShuttleNotice.findOneAndUpdate(
-      { portalNoticeId: notice.portalNoticeId },
-      {
-        $set: {
-          title: notice.title,
-          content: notice.content,
-          url: notice.url,
-          postedAt: notice.postedAt,
-        },
-        $setOnInsert: {
-          createdAt: new Date(),
-        },
-      },
-      { upsert: true, new: true }
-    );
+    let processedCount = 0;
+    let shuttleCount = 0;
+    let errorCount = 0;
+
+    for (const notice of rawList) {
+      try {
+        processedCount++;
+        console.log(`[${processedCount}/${rawList.length}] 공지 처리 중: ${notice.title.substring(0, 50)}...`);
+        
+        // LLM으로 셔틀 관련 여부 판별
+        const isShuttle = await isShuttleRelatedNotice(
+          notice.title,
+          notice.content
+        );
+        
+        if (!isShuttle) {
+          console.log(`  → 셔틀 관련 아님, 스킵`);
+          continue; // 셔틀 관련이 아니면 스킵
+        }
+
+        console.log(`  → 셔틀 관련 공지 확인, DB 저장 중...`);
+
+        // 셔틀 관련 공지만 DB에 저장 (portalNoticeId 기준으로 upsert)
+        await ShuttleNotice.findOneAndUpdate(
+          { portalNoticeId: notice.portalNoticeId },
+          {
+            $set: {
+              title: notice.title,
+              content: notice.content,
+              url: notice.url,
+              postedAt: notice.postedAt,
+            },
+            $setOnInsert: {
+              createdAt: new Date(),
+            },
+          },
+          { upsert: true, new: true }
+        );
+        
+        shuttleCount++;
+        console.log(`  → DB 저장 완료 (총 ${shuttleCount}개)`);
+      } catch (error) {
+        // 개별 공지 처리 실패 시에도 계속 진행
+        errorCount++;
+        console.error(`공지 처리 실패 (${notice.title?.substring(0, 30)}...):`, error.message);
+        // 다음 공지로 계속 진행
+      }
+    }
+
+    console.log(`동기화 완료: 처리 ${processedCount}개, 셔틀 관련 ${shuttleCount}개, 오류 ${errorCount}개`);
+    return { 
+      message: '셔틀 공지 동기화 완료',
+      processed: processedCount,
+      shuttleRelated: shuttleCount,
+      errors: errorCount
+    };
+  } catch (error) {
+    console.error('셔틀 공지 동기화 중 오류 발생:', error);
+    throw error;
   }
-
-  return { message: '셔틀 공지 동기화 완료' };
 }
 
 /**
