@@ -184,10 +184,10 @@ async function fetchNoticeContent(noticeUrl) {
 /**
  * 선문대 포털에서 공지사항 목록 및 상세 내용 수집
  * 실제 HTML 구조: 테이블 형태, 각 행에 아이콘|분류|제목(링크)|작성자|입력일자|조회수
- * @param {number} maxNotices - 최대 수집할 공지 개수 (기본값: 50)
+ * @param {number} maxNotices - 최대 수집할 공지 개수 (기본값: 20, 타임아웃 방지를 위해 줄임)
  * @returns {Promise<Array>} 포털 공지 리스트
  */
-async function fetchPortalNoticesFromPortal(maxNotices = 50) {
+async function fetchPortalNoticesFromPortal(maxNotices = 20) {
   try {
     console.log(`공지사항 목록 페이지 접속: ${NOTICE_LIST_URL}`);
     const html = await fetchHtml(NOTICE_LIST_URL);
@@ -279,8 +279,8 @@ async function fetchPortalNoticesFromPortal(maxNotices = 50) {
         console.warn(`공지 스킵 (제목 또는 내용 없음): ${title.substring(0, 30)}...`);
       }
       
-      // 서버 부하 방지를 위한 짧은 대기
-      await new Promise(resolve => setTimeout(resolve, 500));
+      // 서버 부하 방지를 위한 짧은 대기 (타임아웃 방지를 위해 500ms → 300ms로 단축)
+      await new Promise(resolve => setTimeout(resolve, 300));
     }
     
     console.log(`총 ${notices.length}개의 공지를 수집했습니다.`);
@@ -320,9 +320,33 @@ async function syncShuttleNotices() {
     for (const notice of rawList) {
       try {
         processedCount++;
-        console.log(`[${processedCount}/${rawList.length}] 공지 처리 중: ${notice.title.substring(0, 50)}...`);
+        const titlePreview = notice.title ? notice.title.substring(0, 50) : '(제목 없음)';
+        console.log(`[${processedCount}/${rawList.length}] 공지 처리 중: ${titlePreview}...`);
         
-        // LLM으로 셔틀 관련 여부 판별
+        // 이미 DB에 있는 공지인지 확인 (최적화: LLM 호출 스킵)
+        const existingNotice = await ShuttleNotice.findOne({ 
+          portalNoticeId: notice.portalNoticeId 
+        });
+        
+        if (existingNotice) {
+          // 이미 셔틀 관련 공지로 저장되어 있음 (제목/내용 업데이트만)
+          await ShuttleNotice.findOneAndUpdate(
+            { portalNoticeId: notice.portalNoticeId },
+            {
+              $set: {
+                title: notice.title,
+                content: notice.content,
+                url: notice.url,
+                postedAt: notice.postedAt,
+              },
+            }
+          );
+          console.log(`  → 이미 저장된 셔틀 공지, 업데이트 완료`);
+          shuttleCount++;
+          continue;
+        }
+        
+        // 새 공지: LLM으로 셔틀 관련 여부 판별
         const isShuttle = await isShuttleRelatedNotice(
           notice.title,
           notice.content

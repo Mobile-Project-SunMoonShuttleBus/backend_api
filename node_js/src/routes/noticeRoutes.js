@@ -13,7 +13,7 @@ const noticeController = require('../controllers/noticeController');
  * /notices/shuttle/sync:
  *   post:
  *     summary: 셔틀 공지 동기화
- *     description: 포털에서 공지를 수집하고 LLM으로 분류하여 셔틀 관련 공지만 DB에 저장. 전체 작업은 60초 내에 완료됩니다.
+ *     description: 포털에서 공지를 수집하고 LLM으로 분류하여 셔틀 관련 공지만 DB에 저장. 전체 작업은 최대 5분 내에 완료됩니다.
  *     tags: [Notices]
  *     responses:
  *       200:

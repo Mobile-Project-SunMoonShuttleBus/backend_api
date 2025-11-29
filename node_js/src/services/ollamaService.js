@@ -44,7 +44,7 @@ ${sanitizedContent}
         stream: false,
       },
       {
-        timeout: 30000, // 30초 타임아웃
+        timeout: 15000, // 15초 타임아웃 (타임아웃 방지를 위해 단축)
       }
     );
 
@@ -100,7 +100,7 @@ ${sanitizedContent}
         stream: false,
       },
       {
-        timeout: 30000, // 30초 타임아웃
+        timeout: 15000, // 15초 타임아웃 (타임아웃 방지를 위해 단축)
       }
     );
 
