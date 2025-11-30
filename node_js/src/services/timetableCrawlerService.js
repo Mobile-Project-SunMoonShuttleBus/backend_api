@@ -10,6 +10,37 @@ try {
 const LOGIN_URL = 'https://sws.sunmoon.ac.kr/Login.aspx';
 const TIMETABLE_URL = 'https://sws.sunmoon.ac.kr/UA/Course/CourseRegisterCal.aspx';
 
+// 현재 날짜 기준으로 년도와 학기를 결정하는 함수
+function getCurrentYearAndSemester() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth() + 1; // 1-12
+  
+  let semester;
+  let targetYear = year;
+  
+  // 학기 결정 로직
+  if (month >= 1 && month <= 2) {
+    // 1월, 2월: 겨울학기 (전년도 기준)
+    semester = '겨울학기';
+    targetYear = year - 1;
+  } else if (month >= 3 && month <= 6) {
+    // 3월 ~ 6월: 1학기
+    semester = '1학기';
+  } else if (month >= 7 && month <= 8) {
+    // 7월 ~ 8월: 여름학기
+    semester = '여름학기';
+  } else {
+    // 9월 ~ 12월: 2학기
+    semester = '2학기';
+  }
+  
+  return {
+    year: targetYear,
+    semester: semester
+  };
+}
+
 async function loginToPortal(schoolId, schoolPassword) {
   if (!puppeteer) {
     throw new Error('Puppeteer가 설치되지 않았습니다.');
@@ -41,16 +72,9 @@ async function loginToPortal(schoolId, schoolPassword) {
   
   if (executablePath) {
     launchOptions.executablePath = executablePath;
-    console.log(`Chromium 실행 경로: ${executablePath}`);
-  } else {
-    console.log('Puppeteer 기본 Chromium 사용');
   }
   
   const browser = await puppeteer.launch(launchOptions);
-  
-  browser.on('disconnected', () => {
-    console.log('브라우저 연결이 끊어졌습니다.');
-  });
 
   try {
     const page = await browser.newPage();
@@ -63,16 +87,16 @@ async function loginToPortal(schoolId, schoolPassword) {
 
     await new Promise(resolve => setTimeout(resolve, 2000));
 
-    const inputs = await page.$$('input');
-    console.log(`발견된 input 필드 개수: ${inputs.length}`);
-
     const idInputSelector = await page.evaluate(() => {
       const inputs = Array.from(document.querySelectorAll('input[type="text"], input:not([type])'));
+      if (inputs.length === 0) return null;
+      
       const targetInput = inputs.find(input => {
         const name = (input.name || '').toLowerCase();
         const id = (input.id || '').toLowerCase();
         return name.includes('id') || name.includes('user') || id.includes('id') || id.includes('user');
       }) || inputs[0];
+      
       if (targetInput) {
         if (targetInput.id) return `#${targetInput.id}`;
         if (targetInput.name) return `input[name="${targetInput.name}"]`;
@@ -81,7 +105,6 @@ async function loginToPortal(schoolId, schoolPassword) {
       return null;
     });
 
-    console.log(`ID 입력 필드 선택자: ${idInputSelector || 'input[type="text"]'}`);
     const idInput = idInputSelector ? await page.$(idInputSelector) : await page.$('input[type="text"]');
     const passwordInput = await page.$('input[type="password"]');
     
@@ -123,16 +146,12 @@ async function loginToPortal(schoolId, schoolPassword) {
       }
     }
     
-    console.log(`로그인 버튼 발견: ${loginButton ? '예' : '아니오'}`);
-    
     if (loginButton) {
-      console.log('로그인 버튼 클릭...');
       await Promise.all([
         page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 }).catch(() => {}),
         loginButton.click()
       ]);
     } else {
-      console.log('Enter 키 입력...');
       await passwordInput.press('Enter');
       await page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 }).catch(() => {});
     }
@@ -150,15 +169,6 @@ async function loginToPortal(schoolId, schoolPassword) {
       console.error('로그인 실패:', errorMessage);
       throw new Error(`로그인 실패: ${errorMessage}`);
     }
-
-    const cookies = await page.cookies();
-    console.log(`로그인 후 쿠키 개수: ${cookies.length}`);
-    const hasSessionCookie = cookies.some(cookie => 
-      cookie.name.includes('session') || 
-      cookie.name.includes('auth') || 
-      cookie.name.includes('ASP.NET')
-    );
-    console.log(`세션 쿠키 존재: ${hasSessionCookie ? '예' : '아니오'}`);
 
     console.log('로그인 성공!');
     return { browser, page };
@@ -187,13 +197,231 @@ async function crawlTimetable(page) {
       throw new Error(`로그인이 필요합니다. 페이지가 로그인 페이지로 리다이렉트되었습니다: ${pageText.substring(0, 100)}`);
     }
 
+    // 현재 날짜 기준으로 년도와 학기 결정
+    const { year, semester } = getCurrentYearAndSemester();
+    console.log(`현재 날짜 기준 선택: ${year}년 ${semester}`);
+
+    // 년도 select 찾기 (label 텍스트로 찾기)
+    const yearSelectInfo = await page.evaluate(() => {
+      const labels = Array.from(document.querySelectorAll('label'));
+      const yearLabel = labels.find(label => label.textContent.trim() === '년도');
+      
+      if (!yearLabel) return null;
+      
+      // label의 for 속성으로 연결된 select 찾기
+      const forAttr = yearLabel.getAttribute('for');
+      if (forAttr) {
+        const select = document.querySelector(`select#${forAttr}, select[name="${forAttr}"]`);
+        if (select) {
+          return {
+            selector: `select#${forAttr}, select[name="${forAttr}"]`,
+            found: true
+          };
+        }
+      }
+      
+      // label의 부모 요소에서 select 찾기
+      const parent = yearLabel.parentElement;
+      if (parent) {
+        const select = parent.querySelector('select');
+        if (select) {
+          return {
+            selector: null,
+            found: true,
+            name: select.name,
+            id: select.id
+          };
+        }
+      }
+      
+      // label 다음 형제 요소에서 select 찾기
+      let element = yearLabel.nextElementSibling;
+      while (element) {
+        if (element.tagName === 'SELECT') {
+          return {
+            selector: null,
+            found: true,
+            name: element.name,
+            id: element.id
+          };
+        }
+        element = element.nextElementSibling;
+      }
+      
+      return null;
+    });
+    
+    let yearSelect = null;
+    if (yearSelectInfo && yearSelectInfo.found) {
+      if (yearSelectInfo.selector) {
+        yearSelect = await page.$(yearSelectInfo.selector);
+      } else if (yearSelectInfo.id) {
+        yearSelect = await page.$(`select#${yearSelectInfo.id}`);
+      } else if (yearSelectInfo.name) {
+        yearSelect = await page.$(`select[name="${yearSelectInfo.name}"]`);
+      }
+    }
+    
+    // 년도 select를 찾지 못한 경우 일반적인 패턴 시도
+    if (!yearSelect) {
+      const yearSelectors = [
+        'select[name="ddlyear"]',
+        'select[name="ddlYear"]',
+        'select[id="ddlyear"]',
+        'select[id="ddlYear"]',
+        'select[name*="year"]',
+        'select[id*="year"]'
+      ];
+      for (const selector of yearSelectors) {
+        yearSelect = await page.$(selector);
+        if (yearSelect) break;
+      }
+    }
+
+    if (yearSelect) {
+      const yearOptions = await page.evaluate((select) => {
+        return Array.from(select.options).map(opt => ({
+          value: opt.value,
+          text: opt.text.trim()
+        }));
+      }, yearSelect);
+      
+      const yearOption = yearOptions.find(opt => 
+        opt.text.includes(year.toString()) || 
+        opt.value === year.toString() ||
+        opt.value === (year % 100).toString()
+      );
+      
+      if (yearOption) {
+        await yearSelect.select(yearOption.value);
+        console.log(`년도 선택: ${yearOption.text} (value: ${yearOption.value})`);
+        await new Promise(resolve => setTimeout(resolve, 500));
+      } else {
+        console.warn(`년도 ${year}를 찾을 수 없습니다. 사용 가능한 옵션:`, yearOptions.map(o => `${o.text}(${o.value})`));
+      }
+    } else {
+      console.warn('년도 선택 드롭다운을 찾을 수 없습니다.');
+    }
+
+    // 학기 select 찾기 (label 텍스트로 찾기)
+    const semesterSelectInfo = await page.evaluate(() => {
+      const labels = Array.from(document.querySelectorAll('label'));
+      const semesterLabel = labels.find(label => label.textContent.trim() === '학기');
+      
+      if (!semesterLabel) return null;
+      
+      // label의 for 속성으로 연결된 select 찾기
+      const forAttr = semesterLabel.getAttribute('for');
+      if (forAttr) {
+        const select = document.querySelector(`select#${forAttr}, select[name="${forAttr}"]`);
+        if (select) {
+          return {
+            selector: `select#${forAttr}, select[name="${forAttr}"]`,
+            found: true
+          };
+        }
+      }
+      
+      // label의 부모 요소에서 select 찾기
+      const parent = semesterLabel.parentElement;
+      if (parent) {
+        const select = parent.querySelector('select');
+        if (select) {
+          return {
+            selector: null,
+            found: true,
+            name: select.name,
+            id: select.id
+          };
+        }
+      }
+      
+      // label 다음 형제 요소에서 select 찾기
+      let element = semesterLabel.nextElementSibling;
+      while (element) {
+        if (element.tagName === 'SELECT') {
+          return {
+            selector: null,
+            found: true,
+            name: element.name,
+            id: element.id
+          };
+        }
+        element = element.nextElementSibling;
+      }
+      
+      return null;
+    });
+    
+    let semesterSelect = null;
+    if (semesterSelectInfo && semesterSelectInfo.found) {
+      if (semesterSelectInfo.selector) {
+        semesterSelect = await page.$(semesterSelectInfo.selector);
+      } else if (semesterSelectInfo.id) {
+        semesterSelect = await page.$(`select#${semesterSelectInfo.id}`);
+      } else if (semesterSelectInfo.name) {
+        semesterSelect = await page.$(`select[name="${semesterSelectInfo.name}"]`);
+      }
+    }
+    
+    // 학기 select를 찾지 못한 경우 일반적인 패턴 시도
+    if (!semesterSelect) {
+      const semesterSelectors = [
+        'select[name="ddlsemester"]',
+        'select[name="ddlSemester"]',
+        'select[id="ddlsemester"]',
+        'select[id="ddlSemester"]',
+        'select[name*="semester"]',
+        'select[id*="semester"]'
+      ];
+      for (const selector of semesterSelectors) {
+        semesterSelect = await page.$(selector);
+        if (semesterSelect) break;
+      }
+    }
+
+    if (semesterSelect) {
+      const semesterOptions = await page.evaluate((select) => {
+        return Array.from(select.options).map(opt => ({
+          value: opt.value,
+          text: opt.text.trim()
+        }));
+      }, semesterSelect);
+      
+      const semesterOption = semesterOptions.find(opt => {
+        const optText = opt.text.toLowerCase();
+        const optValue = opt.value.toLowerCase();
+        
+        if (semester === '1학기') {
+          return (optText.includes('1') && !optText.includes('여름') && !optText.includes('겨울') && !optText.includes('2')) || optValue === '1';
+        } else if (semester === '여름학기') {
+          return optText.includes('여름') || optText.includes('summer') || optValue === 's' || optValue === 'summer';
+        } else if (semester === '2학기') {
+          return (optText.includes('2') && !optText.includes('겨울')) || optValue === '2';
+        } else if (semester === '겨울학기') {
+          return optText.includes('겨울') || optText.includes('winter') || optValue === 'w' || optValue === 'winter';
+        }
+        return false;
+      });
+      
+      if (semesterOption) {
+        await semesterSelect.select(semesterOption.value);
+        console.log(`학기 선택: ${semesterOption.text} (value: ${semesterOption.value})`);
+        await new Promise(resolve => setTimeout(resolve, 500));
+      } else {
+        console.warn(`학기 ${semester}를 찾을 수 없습니다. 사용 가능한 옵션:`, semesterOptions.map(o => `${o.text}(${o.value})`));
+      }
+    } else {
+      console.warn('학기 선택 드롭다운을 찾을 수 없습니다.');
+    }
+
+    // 수강신청 선택 (고정값)
     const selectElement = await page.$('select[name="ddlorder"]');
     if (!selectElement) {
       throw new Error('수강신청 선택 드롭다운을 찾을 수 없습니다.');
     }
 
     await selectElement.select('2');
-
     await new Promise(resolve => setTimeout(resolve, 1000));
 
     const searchButton = await page.$('#btn_s_search, a[id*="search"], button[id*="search"]');
