@@ -90,6 +90,7 @@ app.use('/api/timetable', require('./routes/timetableRoutes'));
 app.use('/api/notices', require('./routes/noticeRoutes'));
 app.use('/api/bus/congestion', require('./routes/congestionRoutes'));
 app.use('/api/bus/route-time', require('./routes/routeTimeRoutes'));
+app.use('/api/bus/arrival-time', require('./routes/arrivalTimeRoutes'));
 
 // Swagger 설정 (라우트 설정 후 등록해 경로 충돌 방지)
 swaggerSetup(app);

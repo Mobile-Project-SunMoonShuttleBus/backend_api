@@ -74,9 +74,10 @@ async function getDirections(params) {
           route = response.data.route.tracomfort[0];
         }
         
-        if (route) {
+        if (route && route.summary && route.summary.distance !== undefined) {
           return {
             success: true,
+            route: response.data.route,
             distance: route.summary.distance, // 미터 단위
             duration: route.summary.duration, // 밀리초 단위
             path: route.path, // 경로 좌표 배열 [[lng, lat], ...]
@@ -84,9 +85,21 @@ async function getDirections(params) {
             section: route.section, // 구간별 정보
             summary: route.summary
           };
+        } else {
+          console.error('네이버 Directions API: route 또는 summary 정보 없음', {
+            hasRoute: !!route,
+            hasSummary: !!(route && route.summary),
+            routeKeys: route ? Object.keys(route) : null,
+            summaryKeys: route && route.summary ? Object.keys(route.summary) : null
+          });
+          return {
+            success: false,
+            error: '경로 정보는 있지만 거리 정보가 없습니다.'
+          };
         }
       } else if (response.data.code !== 0) {
         const errorMsg = response.data.message || `오류 코드: ${response.data.code}`;
+        console.error('네이버 Directions API 오류 코드:', response.data.code, errorMsg);
         return {
           success: false,
           error: errorMsg
@@ -94,6 +107,11 @@ async function getDirections(params) {
       }
     }
 
+    console.error('네이버 Directions API: 응답 데이터 없음 또는 경로 없음', {
+      hasData: !!response.data,
+      code: response.data?.code,
+      hasRoute: !!response.data?.route
+    });
     return {
       success: false,
       error: '경로를 찾을 수 없습니다.'

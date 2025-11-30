@@ -42,6 +42,60 @@ const options = {
       }
     },
     servers: servers,
+    tags: [
+      {
+        name: 'Auth',
+        description: '인증 관련 API'
+      },
+      {
+        name: 'Shuttle Routes',
+        description: '셔틀버스 노선 및 시간표 조회'
+      },
+      {
+        name: 'Shuttle Schedules',
+        description: '셔틀버스 시간표 조회'
+      },
+      {
+        name: 'Shuttle Stops',
+        description: '셔틀버스 정류장 정보'
+      },
+      {
+        name: 'Campus Bus Routes',
+        description: '통학버스 노선 및 시간표 조회'
+      },
+      {
+        name: 'Campus Bus Schedules',
+        description: '통학버스 시간표 조회'
+      },
+      {
+        name: 'Campus Bus Stops',
+        description: '통학버스 정류장 정보'
+      },
+      {
+        name: 'Stops',
+        description: '통합 정류장 목록 조회'
+      },
+      {
+        name: 'Timetable',
+        description: '시간표 조회'
+      },
+      {
+        name: 'Notices',
+        description: '공지사항'
+      },
+      {
+        name: 'Bus Congestion',
+        description: '버스 혼잡도'
+      },
+      {
+        name: 'Bus Route Time',
+        description: '버스 경로 및 도착 시간 계산'
+      },
+      {
+        name: 'Admin',
+        description: '관리자 기능'
+      }
+    ],
     components: {
       securitySchemes: {
         bearerAuth: {
@@ -137,8 +191,8 @@ const swaggerSetup = (app) => {
     res.send(swaggerSpec);
   });
   
-  app.use('/api-docs', swaggerUi.serve);
-  app.get('/api-docs', swaggerUi.setup(swaggerSpec, {
+  app.use('/api', swaggerUi.serve);
+  app.get('/api', swaggerUi.setup(swaggerSpec, {
     customSiteTitle: '셔틀버스 API 문서',
     swaggerOptions: {
       persistAuthorization: true,
