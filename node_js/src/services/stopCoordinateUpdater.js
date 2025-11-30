@@ -66,7 +66,6 @@ async function updateStopCoordinatesWithType(stopNames) {
       for (const query of searchQueries) {
         coordinateResult = await searchStopCoordinates(query);
         if (coordinateResult.success) {
-          console.log(`  ✅ 검색어 "${query}"로 좌표 조회 성공`);
           break;
         }
         await new Promise(resolve => setTimeout(resolve, 300));
@@ -110,7 +109,7 @@ async function updateStopCoordinatesWithType(stopNames) {
         requiresStudentHallBoarding: typeInfo.requiresStudentHallBoarding
       });
 
-      console.log(`✅ ${stopName} 좌표 저장 완료:`, {
+      console.log(`${stopName} 좌표 저장 완료:`, {
         latitude: coordinateResult.latitude,
         longitude: coordinateResult.longitude,
         stopType: typeInfo.stopType

@@ -1,5 +1,6 @@
 const swaggerJsdoc = require('swagger-jsdoc');
 const swaggerUi = require('swagger-ui-express');
+const path = require('path');
 
 // 서버 URL 자동 감지 또는 환경 변수 사용
 const getServerUrl = () => {
@@ -125,12 +126,17 @@ const options = {
       }
     ]
   },
-  apis: ['./src/routes/*.js']
+  apis: [path.join(__dirname, '../routes/*.js')]
 };
 
 const swaggerSpec = swaggerJsdoc(options);
 
 const swaggerSetup = (app) => {
+  app.get('/api-json', (req, res) => {
+    res.setHeader('Content-Type', 'application/json');
+    res.send(swaggerSpec);
+  });
+  
   app.use('/api', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
     customSiteTitle: '셔틀버스 API 문서',
     swaggerOptions: {

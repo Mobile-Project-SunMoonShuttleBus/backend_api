@@ -132,7 +132,6 @@ async function updateViaStopCoordinates(stopNames) {
       for (const query of searchQueries) {
         coordinateResult = await searchStopCoordinates(query);
         if (coordinateResult.success) {
-          console.log(`  ✅ Geocoding API로 "${query}" 검색 성공`);
           break;
         }
         await new Promise(resolve => setTimeout(resolve, 300));
@@ -141,7 +140,6 @@ async function updateViaStopCoordinates(stopNames) {
       // 2. Geocoding API 실패 시 수동 좌표 사용
       if (!coordinateResult || !coordinateResult.success) {
         if (manualCoordinates[stopName]) {
-          console.log(`  → 수동 좌표 사용`);
           coordinateResult = {
             success: true,
             latitude: manualCoordinates[stopName].latitude,
@@ -149,9 +147,8 @@ async function updateViaStopCoordinates(stopNames) {
             address: manualCoordinates[stopName].address,
             title: stopName
           };
-          console.log(`  ✅ 수동 좌표 사용: (${coordinateResult.latitude}, ${coordinateResult.longitude})`);
         } else {
-          console.error(`  ❌ ${stopName} 좌표 조회 실패:`, coordinateResult?.error || '모든 검색어 실패');
+          console.error(`${stopName} 좌표 조회 실패:`, coordinateResult?.error || '모든 검색어 실패');
           results.failed.push({
             name: stopName,
             error: coordinateResult?.error || '모든 검색어 실패'
@@ -180,11 +177,11 @@ async function updateViaStopCoordinates(stopNames) {
         address: coordinateResult.address
       });
 
-      console.log(`  ✅ ${stopName} 좌표 저장 완료: (${coordinateResult.latitude}, ${coordinateResult.longitude})`);
+      console.log(`${stopName} 좌표 저장 완료: (${coordinateResult.latitude}, ${coordinateResult.longitude})`);
       
       await new Promise(resolve => setTimeout(resolve, 500));
     } catch (error) {
-      console.error(`  ❌ ${stopName} 처리 중 오류:`, error.message);
+      console.error(`${stopName} 처리 중 오류:`, error.message);
       results.failed.push({
         name: stopName,
         error: error.message

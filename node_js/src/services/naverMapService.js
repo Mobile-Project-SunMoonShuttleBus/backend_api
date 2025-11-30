@@ -140,15 +140,11 @@ function calculateMatchScore(searchText, addressText = '', titleText = '') {
 }
 
 async function searchViaGeocoding(stopName) {
-  console.log(`[Geocoding] 함수 호출됨: ${stopName}`);
-  console.log(`[Geocoding] API 키 확인: ID=${NAVER_API_KEY_ID ? '있음' : '없음'}, KEY=${NAVER_API_KEY ? '있음' : '없음'}`);
-  
   if (!NAVER_API_KEY_ID || !NAVER_API_KEY) {
     throw new Error('네이버 API 키가 설정되지 않았습니다.');
   }
 
   try {
-    console.log(`[Geocoding] API 호출 시작: ${stopName}`);
     const url = 'https://maps.apigw.ntruss.com/map-geocode/v2/geocode';
     const params = {
       query: stopName,
@@ -160,22 +156,10 @@ async function searchViaGeocoding(stopName) {
       'Accept': 'application/json'
     };
     
-    console.log(`[Geocoding] 요청 URL: ${url}`);
-    console.log(`[Geocoding] 요청 파라미터:`, params);
-    
     const response = await axiosInstance.get(url, {
       params: params,
       headers: headers,
       timeout: 5000
-    });
-    
-    console.log(`[Geocoding] 응답 받음: status=${response.status}`);
-
-    // API 응답 로깅 (디버깅)
-    console.log(`Geocoding API 응답 (${stopName}):`, {
-      status: response.data.status,
-      addressCount: response.data.addresses?.length || 0,
-      meta: response.data.meta
     });
 
     // API 응답 확인

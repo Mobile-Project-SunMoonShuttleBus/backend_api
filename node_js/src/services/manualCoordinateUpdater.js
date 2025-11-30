@@ -105,7 +105,7 @@ async function updateStopCoordinatesManually(coordinates) {
         requiresStudentHallBoarding: typeInfo.requiresStudentHallBoarding
       });
 
-      console.log(`✅ ${name} 좌표 저장 완료:`, {
+      console.log(`${name} 좌표 저장 완료:`, {
         latitude: latitude,
         longitude: longitude,
         stopType: typeInfo.stopType
@@ -214,7 +214,7 @@ async function updateStopCoordinatesFromGoogleMapsUrl(urlData) {
         requiresStudentHallBoarding: typeInfo.requiresStudentHallBoarding
       });
 
-      console.log(`✅ ${name} 좌표 저장 완료:`, {
+      console.log(`${name} 좌표 저장 완료:`, {
         latitude: coords.latitude,
         longitude: coords.longitude,
         stopType: typeInfo.stopType

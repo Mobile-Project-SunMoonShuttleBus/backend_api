@@ -51,16 +51,16 @@ function startScheduler() {
           const result = await crawlAndSaveTimetable(account.userId);
           
           if (result.success) {
-            console.log(`✅ ${account.schoolId}: ${result.count}개 시간표 저장 완료`);
+            console.log(`${account.schoolId}: ${result.count}개 시간표 저장 완료`);
             successCount++;
           } else {
-            console.error(`❌ ${account.schoolId}: 크롤링 실패 - ${result.error}`);
+            console.error(`${account.schoolId}: 크롤링 실패 - ${result.error}`);
             failCount++;
           }
           
           await new Promise(resolve => setTimeout(resolve, 2000));
         } catch (error) {
-          console.error(`❌ ${account.schoolId}: 크롤링 오류 - ${error.message}`);
+          console.error(`${account.schoolId}: 크롤링 오류 - ${error.message}`);
           failCount++;
         }
       }
@@ -109,16 +109,16 @@ async function runManually() {
         const result = await crawlAndSaveTimetable(account.userId);
         
         if (result.success) {
-          console.log(`✅ ${account.schoolId}: ${result.count}개 시간표 저장 완료`);
+          console.log(`${account.schoolId}: ${result.count}개 시간표 저장 완료`);
           successCount++;
         } else {
-          console.error(`❌ ${account.schoolId}: 크롤링 실패 - ${result.error}`);
+          console.error(`${account.schoolId}: 크롤링 실패 - ${result.error}`);
           failCount++;
         }
         
         await new Promise(resolve => setTimeout(resolve, 2000));
       } catch (error) {
-        console.error(`❌ ${account.schoolId}: 크롤링 오류 - ${error.message}`);
+        console.error(`${account.schoolId}: 크롤링 오류 - ${error.message}`);
         failCount++;
       }
     }

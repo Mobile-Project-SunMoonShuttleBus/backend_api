@@ -145,7 +145,7 @@ async function updateStopCoordinates(forceUpdateNames = []) {
           }
           
           if (!isRelevant && result.score === 0) {
-            console.warn(`⚠ ${stopName} 좌표 조회 결과가 관련성이 낮을 수 있습니다. 주소: ${resultAddress}`);
+            console.warn(`${stopName} 좌표 조회 결과가 관련성이 낮을 수 있습니다. 주소: ${resultAddress}`);
           }
           
           await BusStop.create({

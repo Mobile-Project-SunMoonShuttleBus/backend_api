@@ -33,7 +33,8 @@ app.use('/api/shuttle', require('./routes/shuttleRoutes'));
 app.use('/api/campus', require('./routes/campusRoutes'));
 app.use('/api/stops', require('./routes/stopRoutes'));
 app.use('/api/timetable', require('./routes/timetableRoutes'));
-app.use('/api/notices', require('./routes/noticeRoutes')); // ✅ 셔틀 공지 API 추가
+app.use('/api/notices', require('./routes/noticeRoutes'));
+app.use('/api/bus/congestion', require('./routes/congestionRoutes'));
 
 // Swagger 설정 (라우트 설정 후 등록해 경로 충돌 방지)
 swaggerSetup(app);
