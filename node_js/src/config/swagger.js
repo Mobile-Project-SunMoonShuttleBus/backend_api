@@ -137,7 +137,8 @@ const swaggerSetup = (app) => {
     res.send(swaggerSpec);
   });
   
-  app.use('/api', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
+  app.use('/api-docs', swaggerUi.serve);
+  app.get('/api-docs', swaggerUi.setup(swaggerSpec, {
     customSiteTitle: '셔틀버스 API 문서',
     swaggerOptions: {
       persistAuthorization: true,

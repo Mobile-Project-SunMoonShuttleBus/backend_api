@@ -20,12 +20,66 @@ app.use((req, res, next) => {
   }
 });
 
+
 // 미들웨어
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// 데이터베이스 연결
-connectDB();
+// 요청 로깅 미들웨어 (디버깅용)
+app.use((req, res, next) => {
+  if (req.path.includes('route-time')) {
+    console.log(`[요청] ${req.method} ${req.path}`, {
+      query: req.query,
+      body: req.body,
+      auth: req.headers.authorization ? '있음' : '없음'
+    });
+  }
+  next();
+});
+
+// 서버 준비 상태 플래그
+let isServerReady = false;
+
+// 데이터베이스 연결 및 초기화
+(async () => {
+  try {
+    console.log('[초기화] 데이터베이스 연결 시작...');
+    await connectDB();
+    console.log('[초기화] 데이터베이스 연결 완료');
+    
+    console.log('[초기화] 초기 크롤링 시작...');
+    await runInitialCrawlers();
+    console.log('[초기화] 초기 크롤링 완료');
+    
+    // 서버 준비 완료
+    isServerReady = true;
+    console.log('[초기화] 서버 준비 완료 - API 요청 처리 가능');
+  } catch (error) {
+    console.error('[초기화] 서버 초기화 중 오류:', error);
+    if (error.stack) {
+      console.error('[초기화] 오류 스택:', error.stack);
+    }
+    // 오류가 있어도 서버는 계속 실행 (재시도 가능)
+    isServerReady = true;
+    console.log('[초기화] 서버 준비 완료 (오류 발생했지만 계속 진행)');
+  }
+})();
+
+// 서버 시작 전에 초기화 시작
+console.log('[시작] 서버 초기화 프로세스 시작');
+
+// 서버 준비 상태 확인 미들웨어
+app.use((req, res, next) => {
+  if (!isServerReady) {
+    return res.status(503).json({
+      success: false,
+      message: '서버가 아직 준비되지 않았습니다.',
+      error: '데이터베이스 연결 및 초기 크롤링이 진행 중입니다.',
+      hint: '잠시 후 다시 시도해주세요. 보통 10-30초 정도 소요됩니다.'
+    });
+  }
+  next();
+});
 
 // 라우트 설정
 app.use('/api/auth', require('./routes/authRoutes'));
@@ -35,6 +89,7 @@ app.use('/api/stops', require('./routes/stopRoutes'));
 app.use('/api/timetable', require('./routes/timetableRoutes'));
 app.use('/api/notices', require('./routes/noticeRoutes'));
 app.use('/api/bus/congestion', require('./routes/congestionRoutes'));
+app.use('/api/bus/route-time', require('./routes/routeTimeRoutes'));
 
 // Swagger 설정 (라우트 설정 후 등록해 경로 충돌 방지)
 swaggerSetup(app);
@@ -42,6 +97,30 @@ swaggerSetup(app);
 // 루트 경로
 app.get('/', (req, res) => {
   res.json({ message: '구동중' });
+});
+
+// 404 핸들러
+app.use((req, res) => {
+  res.status(404).json({
+    success: false,
+    message: '요청한 경로를 찾을 수 없습니다.',
+    error: `경로 '${req.path}'를 찾을 수 없습니다.`,
+    path: req.path,
+    hint: 'API 경로를 확인해주세요. Swagger 문서(/api-docs)를 참고하세요.'
+  });
+});
+
+// 에러 핸들러
+app.use((err, req, res, next) => {
+  console.error('에러 핸들러:', err);
+  if (!res.headersSent) {
+    res.status(err.status || 500).json({
+      success: false,
+      message: err.message || '서버 오류가 발생했습니다.',
+      error: process.env.NODE_ENV === 'development' ? err.stack : '서버 내부 오류가 발생했습니다.',
+      hint: '서버 내부 오류입니다. 잠시 후 다시 시도해주세요.'
+    });
+  }
 });
 
 // 셔틀버스 스케줄러 시작
@@ -55,7 +134,5 @@ timetableScheduler.startScheduler();
 // 서버 시작
 app.listen(PORT, HOST, () => {
   console.log(`서버 실행중: http://${HOST}:${PORT}`);
-  runInitialCrawlers().catch((error) => {
-    console.error('초기 크롤링 실행 실패:', error);
-  });
+  console.log('데이터베이스 연결 및 초기 크롤링 진행 중...');
 });

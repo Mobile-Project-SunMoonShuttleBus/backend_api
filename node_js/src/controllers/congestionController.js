@@ -76,20 +76,63 @@ exports.reportCongestion = async (req, res) => {
     const busSchedule = await BusModel.findOne(busFilter);
 
     if (!busSchedule) {
+      // 경유지 확인
       const viaStopsCheck = await BusModel.findOne({
-        ...busFilter,
-        'viaStops.name': arrival
+        departure,
+        'viaStops.name': arrival,
+        departureTime,
+        dayType,
+        ...(busType === 'campus' ? { direction } : {})
       });
 
       if (viaStopsCheck) {
         return res.status(400).json({
+          success: false,
           message: '도착지에 경유지를 입력하셨습니다. 경유지가 아닌 최종 도착지를 입력해주세요.',
-          hint: `입력하신 "${arrival}"은 경유지입니다. 이 노선의 최종 도착지는 "${viaStopsCheck.arrival}"입니다.`
+          hint: `입력하신 "${arrival}"은 경유지입니다. 이 노선의 최종 도착지는 "${viaStopsCheck.arrival}"입니다.`,
+          requested: {
+            departure,
+            arrival,
+            departureTime,
+            dayType,
+            ...(busType === 'campus' ? { direction } : {})
+          },
+          correctArrival: viaStopsCheck.arrival
         });
       }
 
+      // 디버깅: 유사한 시간표 검색
+      const similarSchedules = await BusModel.find({
+        departure,
+        arrival,
+        dayType
+      }).limit(5);
+
+      const similarDepartureSchedules = await BusModel.find({
+        departure,
+        dayType
+      }).limit(5);
+
       return res.status(404).json({
-        message: '해당 시간표를 찾을 수 없습니다. 출발지, 도착지(최종 도착지), 출발시간, 요일타입을 확인해주세요.',
+        success: false,
+        message: '존재하지 않는 시간표입니다.',
+        error: '입력하신 조건에 맞는 시간표가 존재하지 않습니다.',
+        requested: {
+          busType,
+          departure,
+          arrival,
+          departureTime,
+          dayType,
+          ...(busType === 'campus' ? { direction } : {})
+        },
+        hint: '출발지, 도착지(최종 도착지), 출발시간, 요일타입을 확인해주세요.',
+        suggestions: {
+          similarSchedules: similarSchedules.length > 0 ? similarSchedules.map(s => ({
+            departureTime: s.departureTime,
+            arrival: s.arrival
+          })) : null,
+          availableDepartureTimes: similarDepartureSchedules.length > 0 ? [...new Set(similarDepartureSchedules.map(s => s.departureTime))].slice(0, 5) : null
+        },
         note: '도착지는 경유지가 아닌 최종 목적지를 입력해야 합니다.'
       });
     }

@@ -75,7 +75,7 @@ const { authToken } = require('../middleware/auth');
  *                 description: 방향 (통학버스만 필수, 셔틀버스는 생략 가능)
  *               departureTime:
  *                 type: string
- *                 example: "09:00"
+ *                 example: "09:40"
  *                 description: 출발 시간 (HH:MM 형식)
  *               dayOfWeek:
  *                 type: string
@@ -134,7 +134,7 @@ const { authToken } = require('../middleware/auth');
  *                       example: null
  *                     departureTime:
  *                       type: string
- *                       example: "09:00"
+ *                       example: "09:40"
  *                     dayOfWeek:
  *                       type: string
  *                       example: "월"
@@ -159,7 +159,7 @@ const { authToken } = require('../middleware/auth');
  *       400:
  *         description: 잘못된 요청 (필수 파라미터 누락 또는 잘못된 값)
  *       404:
- *         description: 해당 시간표를 찾을 수 없음
+ *         description: 존재하지 않는 시간표
  *       500:
  *         description: 서버 오류
  */
