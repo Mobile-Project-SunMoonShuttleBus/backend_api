@@ -13,24 +13,27 @@ const {
  * POST /api/notices/shuttle/sync
  */
 exports.syncNotices = async (req, res) => {
-  // 전체 작업 타임아웃 설정 (5분 = 300초)
-  // 크롤링(20개 × 약 1초) + LLM 처리(20개 × 최대 15초) = 최대 약 5분
+  // 전체 작업 타임아웃 설정 (15분 = 900초)
+  // 크롤링(10개 × 약 2-3초) + LLM 처리(10개 × 최대 15초) = 최대 약 3-4분
+  // 여유를 두고 15분으로 설정 (네트워크 지연, 서버 부하 고려)
   const timeoutPromise = new Promise((_, reject) => {
     setTimeout(() => {
-      reject(new Error('동기화 작업이 5분을 초과했습니다.'));
-    }, 300000);
+      reject(new Error('동기화 작업이 15분을 초과했습니다.'));
+    }, 900000); // 15분 = 900초
   });
 
   try {
+    console.log('셔틀 공지 동기화 요청 시작 (타임아웃: 15분)');
     const result = await Promise.race([
       syncShuttleNotices(),
       timeoutPromise
     ]);
+    console.log('셔틀 공지 동기화 성공:', result);
     res.json(result);
   } catch (e) {
     console.error('셔틀 공지 동기화 실패:', e);
     // 에러 메시지 노출 최소화 (보안)
-    const errorMessage = e.message && e.message.includes('5분') 
+    const errorMessage = e.message && e.message.includes('15분') 
       ? '동기화 작업 시간 초과'
       : '셔틀 공지 동기화 실패';
     res

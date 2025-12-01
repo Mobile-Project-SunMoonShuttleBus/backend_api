@@ -184,10 +184,10 @@ async function fetchNoticeContent(noticeUrl) {
 /**
  * 선문대 포털에서 공지사항 목록 및 상세 내용 수집
  * 실제 HTML 구조: 테이블 형태, 각 행에 아이콘|분류|제목(링크)|작성자|입력일자|조회수
- * @param {number} maxNotices - 최대 수집할 공지 개수 (기본값: 20, 타임아웃 방지를 위해 줄임)
+ * @param {number} maxNotices - 최대 수집할 공지 개수 (기본값: 10, 타임아웃 방지를 위해 줄임)
  * @returns {Promise<Array>} 포털 공지 리스트
  */
-async function fetchPortalNoticesFromPortal(maxNotices = 20) {
+async function fetchPortalNoticesFromPortal(maxNotices = 10) {
   try {
     console.log(`공지사항 목록 페이지 접속: ${NOTICE_LIST_URL}`);
     const html = await fetchHtml(NOTICE_LIST_URL);
@@ -264,23 +264,42 @@ async function fetchPortalNoticesFromPortal(maxNotices = 20) {
       
       // 공지 상세 페이지에서 본문 가져오기
       console.log(`공지 상세 페이지 접속: ${noticeUrl} (${i + 1}/${processCount}) - ${title.substring(0, 30)}...`);
-      const content = await fetchNoticeContent(noticeUrl);
-      
-      // 제목과 내용이 모두 있어야만 추가
-      if (title && title.trim() && content && content.trim() && content !== '내용을 가져올 수 없습니다.') {
-        notices.push({
-          portalNoticeId,
-          title: title.trim(),
-          content: content.trim(),
-          url: noticeUrl,
-          postedAt
-        });
-      } else {
-        console.warn(`공지 스킵 (제목 또는 내용 없음): ${title.substring(0, 30)}...`);
+      let content;
+      try {
+        content = await fetchNoticeContent(noticeUrl);
+      } catch (contentError) {
+        console.error(`공지 본문 가져오기 실패 (${title.substring(0, 30)}...):`, contentError.message);
+        // 본문 가져오기 실패해도 제목만으로 진행 (LLM이 제목만으로도 판별 가능)
+        content = '';
       }
       
-      // 서버 부하 방지를 위한 짧은 대기 (타임아웃 방지를 위해 500ms → 300ms로 단축)
-      await new Promise(resolve => setTimeout(resolve, 300));
+      // 제목과 내용이 모두 있어야만 추가 (단, 본문이 없어도 제목만으로 진행 가능)
+      if (title && title.trim()) {
+        if (content && content.trim() && content !== '내용을 가져올 수 없습니다.') {
+          notices.push({
+            portalNoticeId,
+            title: title.trim(),
+            content: content.trim(),
+            url: noticeUrl,
+            postedAt
+          });
+        } else if (content === '내용을 가져올 수 없습니다.' || !content) {
+          // 본문이 없어도 제목만으로 저장 (LLM이 제목만으로 판별 가능)
+          notices.push({
+            portalNoticeId,
+            title: title.trim(),
+            content: title.trim(), // 제목을 내용으로 사용
+            url: noticeUrl,
+            postedAt
+          });
+          console.warn(`공지 본문 없음, 제목만 사용: ${title.substring(0, 30)}...`);
+        }
+      } else {
+        console.warn(`공지 스킵 (제목 없음): ${noticeUrl}`);
+      }
+      
+      // 서버 부하 방지를 위한 짧은 대기 (타임아웃 방지를 위해 200ms로 단축)
+      await new Promise(resolve => setTimeout(resolve, 200));
     }
     
     console.log(`총 ${notices.length}개의 공지를 수집했습니다.`);
@@ -300,6 +319,7 @@ async function fetchPortalNoticesFromPortal(maxNotices = 20) {
  * @returns {Promise<Object>} 동기화 결과
  */
 async function syncShuttleNotices() {
+  const startTime = Date.now();
   try {
     console.log('셔틀 공지 동기화 시작...');
     
@@ -311,7 +331,8 @@ async function syncShuttleNotices() {
       ? await fetchPortalNoticesMock() 
       : await fetchPortalNoticesFromPortal();
 
-    console.log(`수집된 공지 개수: ${rawList.length}개`);
+    const crawlTime = ((Date.now() - startTime) / 1000).toFixed(1);
+    console.log(`수집된 공지 개수: ${rawList.length}개 (크롤링 소요 시간: ${crawlTime}초)`);
 
     let processedCount = 0;
     let shuttleCount = 0;
@@ -347,10 +368,18 @@ async function syncShuttleNotices() {
         }
         
         // 새 공지: LLM으로 셔틀 관련 여부 판별
-        const isShuttle = await isShuttleRelatedNotice(
-          notice.title,
-          notice.content
-        );
+        let isShuttle = false;
+        try {
+          isShuttle = await isShuttleRelatedNotice(
+            notice.title,
+            notice.content
+          );
+        } catch (llmError) {
+          // LLM 호출 실패 시 에러 로깅 후 스킵
+          console.error(`  → LLM 호출 실패 (${notice.title?.substring(0, 30)}...):`, llmError.message);
+          errorCount++;
+          continue; // LLM 실패 시 해당 공지 스킵
+        }
         
         if (!isShuttle) {
           console.log(`  → 셔틀 관련 아님, 스킵`);
@@ -382,11 +411,15 @@ async function syncShuttleNotices() {
         // 개별 공지 처리 실패 시에도 계속 진행
         errorCount++;
         console.error(`공지 처리 실패 (${notice.title?.substring(0, 30)}...):`, error.message);
+        if (error.stack) {
+          console.error(`스택 트레이스:`, error.stack);
+        }
         // 다음 공지로 계속 진행
       }
     }
 
-    console.log(`동기화 완료: 처리 ${processedCount}개, 셔틀 관련 ${shuttleCount}개, 오류 ${errorCount}개`);
+    const totalTime = ((Date.now() - startTime) / 1000).toFixed(1);
+    console.log(`동기화 완료: 처리 ${processedCount}개, 셔틀 관련 ${shuttleCount}개, 오류 ${errorCount}개 (총 소요 시간: ${totalTime}초)`);
     return { 
       message: '셔틀 공지 동기화 완료',
       processed: processedCount,
@@ -394,7 +427,8 @@ async function syncShuttleNotices() {
       errors: errorCount
     };
   } catch (error) {
-    console.error('셔틀 공지 동기화 중 오류 발생:', error);
+    const totalTime = ((Date.now() - startTime) / 1000).toFixed(1);
+    console.error(`셔틀 공지 동기화 중 오류 발생 (소요 시간: ${totalTime}초):`, error);
     throw error;
   }
 }

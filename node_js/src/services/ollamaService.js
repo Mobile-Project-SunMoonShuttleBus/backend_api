@@ -44,7 +44,7 @@ ${sanitizedContent}
         stream: false,
       },
       {
-        timeout: 15000, // 15초 타임아웃 (타임아웃 방지를 위해 단축)
+        timeout: 20000, // 20초 타임아웃 (LLM 처리 시간 여유 확보)
       }
     );
 
@@ -100,7 +100,7 @@ ${sanitizedContent}
         stream: false,
       },
       {
-        timeout: 15000, // 15초 타임아웃 (타임아웃 방지를 위해 단축)
+        timeout: 20000, // 20초 타임아웃 (LLM 처리 시간 여유 확보)
       }
     );
 
