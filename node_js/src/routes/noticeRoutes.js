@@ -38,6 +38,10 @@ const noticeController = require('../controllers/noticeController');
  *                   type: number
  *                   description: 처리 중 발생한 오류 개수
  *                   example: 0
+ *                 llmFailures:
+ *                   type: number
+ *                   description: LLM(Ollama) 연결 실패 횟수 (0이 아니면 Ollama 서버 상태 확인 필요)
+ *                   example: 0
  *       500:
  *         description: 동기화 실패 (크롤링 실패, Ollama 서버 오류, 타임아웃 등)
  *         content:
@@ -50,6 +54,12 @@ const noticeController = require('../controllers/noticeController');
  *                   example: 셔틀 공지 동기화 실패
  */
 // 셔틀 공지 동기화 (개발/운영용 - 나중에 관리자 권한 필요시 보호)
+// GET 요청에 대한 명시적 처리 추가 (잘못된 메서드 방지)
+router.get('/shuttle/sync', (req, res) => {
+  res.status(405).json({ 
+    message: '동기화는 POST 메서드로만 요청 가능합니다. POST /api/notices/shuttle/sync를 사용해주세요.' 
+  });
+});
 router.post('/shuttle/sync', noticeController.syncNotices);
 
 /**

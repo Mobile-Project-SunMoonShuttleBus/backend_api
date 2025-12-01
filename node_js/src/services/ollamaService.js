@@ -7,9 +7,9 @@ const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '../../.env') });
 
 const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
-// 기본값: llama3.2:3b (약 2GB) - 8GB 서버에 적합
-// llama3:8b는 약 4.7GB 사용하므로 8GB 서버에서는 부담될 수 있음
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'llama3.2:3b';
+// 기본값: orca-mini:3b (약 1.9GB) - 경량 모델, 빠른 응답
+// llama3.2:3b는 약 2GB, llama3:8b는 약 4.7GB 사용
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'orca-mini:3b';
 
 /**
  * 셔틀 관련 공지인지 분류
@@ -25,7 +25,23 @@ async function isShuttleRelatedNotice(title, content) {
     
     const prompt = `
 다음 공지가 "셔틀버스/통학버스/학교 셔틀 운행"과 관련된 공지인지 판별해라.
-YES 또는 NO 중 하나만 출력해라.
+
+셔틀 관련 공지의 예시:
+- 셔틀버스 운행 시간 변경
+- 통학버스 노선 변경
+- 셔틀 운행 중단/재개
+- 셔틀 정류장 변경
+- 셔틀 요금/이용 안내
+- 천안역/아산역 셔틀 관련
+- 등하교 셔틀 관련
+
+셔틀 무관 공지의 예시:
+- 수강신청, 기말고사, 학사일정
+- 장학금, 취업, 행사 안내
+- 기숙사, 도서관, 식당 관련
+- 일반 행정 공지
+
+반드시 YES 또는 NO 중 하나만 출력해라. 다른 설명 없이 YES 또는 NO만 출력하라.
 
 [공지 제목]
 ${sanitizedTitle}
@@ -49,15 +65,35 @@ ${sanitizedContent}
     );
 
     const answer = (res.data.response || '').trim().toUpperCase();
-    return answer.startsWith('Y'); // YES, Yes 등
+    
+    // LLM 응답 파싱: YES/NO 판별 (더 정확한 파싱)
+    // "YES", "Yes", "Y" 등으로 시작하거나 포함하는 경우
+    const isYes = /^YES\b|^Y\b|^YES\s|^Y\s/.test(answer) || answer.includes('YES');
+    // "NO", "No", "N" 등으로 시작하거나 포함하는 경우
+    const isNo = /^NO\b|^N\b|^NO\s|^N\s/.test(answer) || (answer.includes('NO') && !answer.includes('YES'));
+    
+    // 명확한 YES/NO가 없으면 로그 경고 후 안전하게 false 반환
+    let result = false;
+    if (isYes && !isNo) {
+      result = true;
+    } else if (isNo && !isYes) {
+      result = false;
+    } else {
+      // 애매한 응답인 경우 로그 경고
+      console.warn(`[LLM 응답 파싱 경고] 애매한 응답: "${answer.substring(0, 100)}" → NO로 처리`);
+      result = false; // 안전하게 false 반환
+    }
+    
+    console.log(`[LLM 응답] ${answer.substring(0, 100)}... → ${result ? 'YES' : 'NO'}`);
+    return result;
   } catch (error) {
-    // Ollama 서버가 꺼져 있거나 연결 실패 시 에러 로깅 후 false 반환
+    // Ollama 서버가 꺼져 있거나 연결 실패 시 에러 로깅 후 예외 던지기
     console.error(`Ollama 호출 실패 (isShuttleRelatedNotice):`, error.message);
     if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
-      console.warn(`Ollama 서버에 연결할 수 없습니다 (${OLLAMA_BASE_URL}). 기본값 false 반환.`);
+      console.error(`❌ Ollama 서버에 연결할 수 없습니다 (${OLLAMA_BASE_URL}). 서버가 실행 중인지 확인하세요.`);
     }
-    // Ollama 실패 시 안전하게 false 반환 (셔틀 관련이 아닌 것으로 간주)
-    return false;
+    // Ollama 실패 시 예외를 던져서 호출자가 실패를 인지할 수 있도록 함
+    throw new Error(`Ollama 연결 실패: ${error.message}`);
   }
 }
 

@@ -64,6 +64,14 @@ exports.getShuttleNotices = async (req, res) => {
 exports.getShuttleNoticeDetail = async (req, res) => {
   try {
     const { id } = req.params;
+    
+    // "sync" 같은 특수 경로가 ID로 들어온 경우 명확한 에러 메시지 제공
+    if (id === 'sync') {
+      return res.status(400).json({ 
+        message: '동기화 엔드포인트입니다. 공지 상세 조회는 GET /api/notices/shuttle/{공지ID} 형식으로 요청해주세요.' 
+      });
+    }
+    
     const notice = await getShuttleNoticeDetail(id);
     res.json(notice);
   } catch (e) {
@@ -71,7 +79,7 @@ exports.getShuttleNoticeDetail = async (req, res) => {
       return res.status(404).json({ message: '공지 없음' });
     }
     if (e.code === 'INVALID_ID') {
-      return res.status(400).json({ message: '잘못된 공지 ID 형식입니다.' });
+      return res.status(400).json({ message: '잘못된 공지 ID 형식입니다. MongoDB ObjectId 형식(24자리 16진수)이 필요합니다.' });
     }
     console.error(e);
     // 에러 메시지 노출 최소화 (보안)

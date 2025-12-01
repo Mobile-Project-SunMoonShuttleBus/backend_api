@@ -337,6 +337,7 @@ async function syncShuttleNotices() {
     let processedCount = 0;
     let shuttleCount = 0;
     let errorCount = 0;
+    let llmFailureCount = 0; // LLM 연결 실패 횟수
 
     for (const notice of rawList) {
       try {
@@ -374,11 +375,14 @@ async function syncShuttleNotices() {
             notice.title,
             notice.content
           );
+          console.log(`  → LLM 판별 결과: ${isShuttle ? '✅ 셔틀 관련' : '❌ 셔틀 무관'} (제목: ${notice.title?.substring(0, 40)}...)`);
         } catch (llmError) {
-          // LLM 호출 실패 시 에러 로깅 후 스킵
+          // LLM 호출 실패 시 에러 로깅
+          llmFailureCount++;
           console.error(`  → LLM 호출 실패 (${notice.title?.substring(0, 30)}...):`, llmError.message);
           errorCount++;
-          continue; // LLM 실패 시 해당 공지 스킵
+          // LLM 실패 시 해당 공지 스킵 (안전하게 false로 처리)
+          continue;
         }
         
         if (!isShuttle) {
@@ -419,12 +423,20 @@ async function syncShuttleNotices() {
     }
 
     const totalTime = ((Date.now() - startTime) / 1000).toFixed(1);
-    console.log(`동기화 완료: 처리 ${processedCount}개, 셔틀 관련 ${shuttleCount}개, 오류 ${errorCount}개 (총 소요 시간: ${totalTime}초)`);
+    console.log(`동기화 완료: 처리 ${processedCount}개, 셔틀 관련 ${shuttleCount}개, 오류 ${errorCount}개 (LLM 실패: ${llmFailureCount}개) (총 소요 시간: ${totalTime}초)`);
+    
+    // LLM 실패가 많으면 경고 메시지 추가
+    let message = '셔틀 공지 동기화 완료';
+    if (llmFailureCount > 0) {
+      message += ` (주의: LLM 연결 실패 ${llmFailureCount}건 - Ollama 서버 상태 확인 필요)`;
+    }
+    
     return { 
-      message: '셔틀 공지 동기화 완료',
+      message,
       processed: processedCount,
       shuttleRelated: shuttleCount,
-      errors: errorCount
+      errors: errorCount,
+      llmFailures: llmFailureCount // LLM 실패 횟수 추가
     };
   } catch (error) {
     const totalTime = ((Date.now() - startTime) / 1000).toFixed(1);
@@ -474,9 +486,18 @@ async function getShuttleNoticeDetail(id) {
 
   // summary가 없으면 LLM으로 요약 생성 후 저장 (캐싱)
   if (!notice.summary || !notice.summary.trim()) {
-    const summary = await summarizeNotice(notice.title, notice.content);
-    notice.summary = summary;
-    await notice.save();
+    try {
+      const summary = await summarizeNotice(notice.title, notice.content);
+      if (summary && summary.trim() && summary !== '요약을 생성할 수 없습니다.') {
+        notice.summary = summary;
+        await notice.save();
+      } else {
+        console.warn(`공지 요약 생성 실패 (ID: ${id}): LLM이 요약을 생성하지 못했습니다.`);
+      }
+    } catch (error) {
+      console.error(`공지 요약 생성 중 오류 발생 (ID: ${id}):`, error.message);
+      // 요약 생성 실패해도 공지 정보는 반환
+    }
   }
 
   return notice;
