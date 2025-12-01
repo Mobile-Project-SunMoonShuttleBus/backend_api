@@ -66,7 +66,6 @@ const connectDB = async () => {
         await mongoose.connect(MONGO_URI, {
           serverSelectionTimeoutMS: 10000,
           socketTimeoutMS: 45000,
-          bufferMaxEntries: 0,
           bufferCommands: false,
           maxPoolSize: 10,
           minPoolSize: 2,
