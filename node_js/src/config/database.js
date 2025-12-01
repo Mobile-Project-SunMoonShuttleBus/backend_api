@@ -56,12 +56,41 @@ const connectDB = async () => {
       return;
     }
     
-    // 연결 시도
-    await mongoose.connect(MONGO_URI, {
-      serverSelectionTimeoutMS: 5000,
-      socketTimeoutMS: 45000,
-    });
+    // 연결 시도 (재시도 로직 포함)
+    let retries = 0;
+    const maxRetries = 5;
+    const retryDelay = 2000; // 2초
+    
+    while (retries < maxRetries) {
+      try {
+        await mongoose.connect(MONGO_URI, {
+          serverSelectionTimeoutMS: 10000,
+          socketTimeoutMS: 45000,
+          bufferMaxEntries: 0,
+          bufferCommands: false,
+          maxPoolSize: 10,
+          minPoolSize: 2,
+        });
+        break; // 연결 성공 시 루프 종료
+      } catch (connectError) {
+        retries++;
+        if (retries >= maxRetries) {
+          throw connectError; // 최대 재시도 횟수 초과 시 에러 throw
+        }
+        console.log(`MongoDB 연결 시도 ${retries}/${maxRetries} 실패, ${retryDelay}ms 후 재시도...`);
+        await new Promise(resolve => setTimeout(resolve, retryDelay));
+      }
+    }
     console.log('MongoDB 연결 성공');
+    
+    // 연결 끊김 이벤트 핸들러 설정
+    mongoose.connection.on('disconnected', () => {
+      console.warn('MongoDB 연결이 끊어졌습니다. 재연결을 시도합니다...');
+    });
+    
+    mongoose.connection.on('error', (err) => {
+      console.error('MongoDB 연결 오류:', err.message);
+    });
     
     // 연결 후 인증 확인 (간단한 명령 실행)
     try {

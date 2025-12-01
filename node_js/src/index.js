@@ -59,9 +59,18 @@ let isServerReady = false;
     if (error.stack) {
       console.error('[초기화] 오류 스택:', error.stack);
     }
-    // 오류가 있어도 서버는 계속 실행 (재시도 가능)
-    isServerReady = true;
-    console.log('[초기화] 서버 준비 완료 (오류 발생했지만 계속 진행)');
+    // DB 연결 실패 시에는 isServerReady를 false로 유지
+    const mongoose = require('mongoose');
+    const isDBConnected = mongoose.connection.readyState === 1;
+    
+    if (isDBConnected) {
+      isServerReady = true;
+      console.log('[초기화] 서버 준비 완료 (일부 오류 발생했지만 DB는 연결됨)');
+    } else {
+      isServerReady = false;
+      console.error('[초기화] 데이터베이스 연결 실패 - 서버는 실행 중이지만 API 요청은 처리할 수 없습니다.');
+      console.error('[초기화] MongoDB 연결을 확인해주세요.');
+    }
   }
 })();
 
@@ -70,12 +79,17 @@ console.log('[시작] 서버 초기화 프로세스 시작');
 
 // 서버 준비 상태 확인 미들웨어
 app.use((req, res, next) => {
-  if (!isServerReady) {
+  // DB 연결 상태 확인
+  const mongoose = require('mongoose');
+  const isDBConnected = mongoose.connection.readyState === 1;
+  
+  if (!isServerReady || !isDBConnected) {
     return res.status(503).json({
       success: false,
       message: '서버가 아직 준비되지 않았습니다.',
       error: '데이터베이스 연결 및 초기 크롤링이 진행 중입니다.',
-      hint: '잠시 후 다시 시도해주세요. 보통 10-30초 정도 소요됩니다.'
+      hint: '잠시 후 다시 시도해주세요. 보통 10-30초 정도 소요됩니다.',
+      dbStatus: isDBConnected ? 'connected' : 'disconnected'
     });
   }
   next();

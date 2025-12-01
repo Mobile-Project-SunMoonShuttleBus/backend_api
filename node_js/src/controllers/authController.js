@@ -3,10 +3,19 @@ const SchoolAccount = require('../models/SchoolAccount');
 const TokenBlacklist = require('../models/TokenBlacklist');
 const { createToken } = require('../middleware/auth');
 const jwt = require('jsonwebtoken');
+const mongoose = require('mongoose');
 
 // 회원가입
 const register = async (req, res) => {
   try {
+    // DB 연결 상태 확인
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({
+        message: '데이터베이스 연결이 되지 않았습니다.',
+        error: 'MongoDB 연결을 확인해주세요.',
+        hint: '서버가 아직 초기화 중이거나 데이터베이스 연결에 문제가 있습니다.'
+      });
+    }
     const { userId, password, Password } = req.body;
     const userPassword = password ?? Password;
 

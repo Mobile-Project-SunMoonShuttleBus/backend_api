@@ -14,8 +14,10 @@ services:
     networks:
       - bus_api
     depends_on:
-      - database
-      - ollama
+      database:
+        condition: service_healthy
+      ollama:
+        condition: service_started
     # 보안 설정: 호스트 시스템 접근 차단
     # read_only: true  # 로그 파일 쓰기가 필요하면 주석 처리
     security_opt:
@@ -53,6 +55,12 @@ services:
     security_opt:
       - no-new-privileges:true
     restart: unless-stopped
+    healthcheck:
+      test: echo 'db.runCommand("ping").ok' | mongosh localhost:27017/test --quiet
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
     # 리소스 제한
     deploy:
       resources:
