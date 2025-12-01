@@ -360,6 +360,7 @@ async function syncShuttleNotices() {
                 content: notice.content,
                 url: notice.url,
                 postedAt: notice.postedAt,
+                isShuttle: true, // 명시적으로 true 설정
               },
             }
           );
@@ -401,6 +402,7 @@ async function syncShuttleNotices() {
               content: notice.content,
               url: notice.url,
               postedAt: notice.postedAt,
+              isShuttle: true, // 명시적으로 true 설정
             },
             $setOnInsert: {
               createdAt: new Date(),
@@ -450,7 +452,8 @@ async function syncShuttleNotices() {
  * @returns {Promise<Array>} 공지 리스트 (_id, title, postedAt 포함)
  */
 async function getShuttleNoticeList() {
-  return ShuttleNotice.find({}, '_id title postedAt').sort({ postedAt: -1 });
+  // isShuttle=true인 공지만 반환 (안전장치)
+  return ShuttleNotice.find({ isShuttle: true }, '_id title postedAt').sort({ postedAt: -1 });
 }
 
 /**

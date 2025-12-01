@@ -41,15 +41,26 @@ async function isShuttleRelatedNotice(title, content) {
 - 기숙사, 도서관, 식당 관련
 - 일반 행정 공지
 
-반드시 YES 또는 NO 중 하나만 출력해라. 다른 설명 없이 YES 또는 NO만 출력하라.
-
 [공지 제목]
 ${sanitizedTitle}
 
 [공지 내용]
 ${sanitizedContent}
 
-답:
+반드시 다음 JSON 형식으로만 응답해라. 다른 텍스트 없이 JSON만 출력하라:
+{
+  "isShuttle": true,
+  "reason": "셔틀버스 운행 시간 변경 관련 공지"
+}
+
+또는
+
+{
+  "isShuttle": false,
+  "reason": "기말고사 일정 관련 공지"
+}
+
+JSON:
 `.trim();
 
     const res = await axios.post(
@@ -64,27 +75,67 @@ ${sanitizedContent}
       }
     );
 
-    const answer = (res.data.response || '').trim().toUpperCase();
+    // LLM raw 응답 로깅 (디버깅용)
+    const rawResponse = (res.data.response || '').trim();
+    console.log(`[LLM RAW] ${rawResponse.substring(0, 500)}${rawResponse.length > 500 ? '...' : ''}`);
     
-    // LLM 응답 파싱: YES/NO 판별 (더 정확한 파싱)
-    // "YES", "Yes", "Y" 등으로 시작하거나 포함하는 경우
-    const isYes = /^YES\b|^Y\b|^YES\s|^Y\s/.test(answer) || answer.includes('YES');
-    // "NO", "No", "N" 등으로 시작하거나 포함하는 경우
-    const isNo = /^NO\b|^N\b|^NO\s|^N\s/.test(answer) || (answer.includes('NO') && !answer.includes('YES'));
-    
-    // 명확한 YES/NO가 없으면 로그 경고 후 안전하게 false 반환
+    // JSON 파싱 시도
+    let parsed = null;
     let result = false;
-    if (isYes && !isNo) {
-      result = true;
-    } else if (isNo && !isYes) {
-      result = false;
-    } else {
-      // 애매한 응답인 경우 로그 경고
-      console.warn(`[LLM 응답 파싱 경고] 애매한 응답: "${answer.substring(0, 100)}" → NO로 처리`);
-      result = false; // 안전하게 false 반환
+    
+    try {
+      // JSON 블록 추출 (마크다운 코드 블록 제거)
+      let jsonStr = rawResponse;
+      
+      // 마크다운 코드 블록 제거 (```json ... ``` 또는 ``` ... ```)
+      jsonStr = jsonStr.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+      
+      // JSON 객체만 추출 (중괄호로 시작하고 끝나는 부분)
+      const jsonMatch = jsonStr.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        jsonStr = jsonMatch[0];
+      }
+      
+      parsed = JSON.parse(jsonStr);
+      
+      // isShuttle 필드 확인 (다양한 형태 지원)
+      if (parsed.isShuttle === true || parsed.isShuttle === 'true' || 
+          parsed.is_shuttle === true || parsed.is_shuttle === 'true') {
+        result = true;
+      } else if (parsed.isShuttle === false || parsed.isShuttle === 'false' ||
+                 parsed.is_shuttle === false || parsed.is_shuttle === 'false') {
+        result = false;
+      } else {
+        // isShuttle 필드가 없거나 예상치 못한 값인 경우
+        console.warn(`[LLM 응답 파싱 경고] isShuttle 필드가 없거나 예상치 못한 값:`, parsed);
+        result = false;
+      }
+      
+      console.log(`[LLM PARSED] isShuttle=${result}, reason="${parsed.reason || 'N/A'}"`);
+    } catch (parseError) {
+      // JSON 파싱 실패 시 텍스트 기반 파싱 (하위 호환성)
+      console.warn(`[LLM 응답 파싱 경고] JSON 파싱 실패, 텍스트 기반 파싱 시도:`, parseError.message);
+      
+      const answer = rawResponse.toUpperCase();
+      
+      // YES/NO 텍스트 기반 판별 (하위 호환성)
+      const isYes = /^YES\b|^Y\b|^YES\s|^Y\s|TRUE|참|예|관련/.test(answer) || 
+                    answer.includes('YES') || answer.includes('TRUE');
+      const isNo = /^NO\b|^N\b|^NO\s|^N\s|FALSE|거짓|아니오|무관/.test(answer) || 
+                   (answer.includes('NO') && !answer.includes('YES'));
+      
+      if (isYes && !isNo) {
+        result = true;
+      } else if (isNo && !isYes) {
+        result = false;
+      } else {
+        console.warn(`[LLM 응답 파싱 경고] 애매한 응답: "${answer.substring(0, 100)}" → NO로 처리`);
+        result = false;
+      }
+      
+      console.log(`[LLM FALLBACK] 텍스트 파싱 결과: ${result ? 'YES' : 'NO'}`);
     }
     
-    console.log(`[LLM 응답] ${answer.substring(0, 100)}... → ${result ? 'YES' : 'NO'}`);
     return result;
   } catch (error) {
     // Ollama 서버가 꺼져 있거나 연결 실패 시 에러 로깅 후 예외 던지기

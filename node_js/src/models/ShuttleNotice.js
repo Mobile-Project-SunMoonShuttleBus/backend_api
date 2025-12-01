@@ -28,6 +28,11 @@ const shuttleNoticeSchema = new mongoose.Schema({
     type: Date,
     required: true, // 포털 상의 공지 게시일
   },
+  isShuttle: {
+    type: Boolean,
+    default: true, // 셔틀 관련 공지만 저장하므로 기본값 true
+    index: true, // 조회 성능 최적화
+  },
   createdAt: {
     type: Date,
     default: Date.now,
