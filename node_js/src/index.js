@@ -103,6 +103,7 @@ app.use('/api/stops', require('./routes/stopRoutes'));
 app.use('/api/timetable', require('./routes/timetableRoutes'));
 app.use('/api/notices', require('./routes/noticeRoutes'));
 app.use('/api/bus/congestion', require('./routes/congestionRoutes'));
+app.use('/api/congestion', require('./routes/congestionRoutes'));
 app.use('/api/bus/route-time', require('./routes/routeTimeRoutes'));
 app.use('/api/bus/arrival-time', require('./routes/arrivalTimeRoutes'));
 

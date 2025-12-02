@@ -165,5 +165,125 @@ const { authToken } = require('../middleware/auth');
  */
 router.post('/', authToken, congestionController.reportCongestion);
 
+/**
+ * @swagger
+ * /api/congestion/report:
+ *   post:
+ *     summary: 혼잡도 리포트 저장 (요구사항 DB_table_crowd-01)
+ *     tags: [Congestion]
+ *     security:
+ *       - bearerAuth: []
+ *     description: |
+ *       사용자 단말에서 자동으로 전송되는 혼잡도 리포트를 저장합니다.
+ *       요구사항 DB_table_crowd-01에 따라 crowd_reports 컬렉션에 저장됩니다.
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - routeId
+ *               - stopId
+ *               - weekday
+ *               - timeSlot
+ *               - index
+ *             properties:
+ *               routeId:
+ *                 type: string
+ *                 example: "507f1f77bcf86cd799439011"
+ *                 description: 노선 식별자 (ObjectId)
+ *               stopId:
+ *                 type: string
+ *                 example: "507f1f77bcf86cd799439012"
+ *                 description: 정류장 식별자 (ObjectId)
+ *               weekday:
+ *                 type: integer
+ *                 minimum: 0
+ *                 maximum: 6
+ *                 example: 0
+ *                 description: 요일 (0=월요일, 6=일요일)
+ *               timeSlot:
+ *                 type: integer
+ *                 minimum: 0
+ *                 maximum: 143
+ *                 example: 48
+ *                 description: 시간 슬롯 (10분 단위, 08:00 = 8*6+0 = 48)
+ *               index:
+ *                 type: number
+ *                 minimum: 0
+ *                 maximum: 100
+ *                 example: 50
+ *                 description: 혼잡도 지수 (0~100, 낮을수록 여유)
+ *               clientTs:
+ *                 type: string
+ *                 format: date-time
+ *                 example: "2025-01-20T10:30:00.000Z"
+ *                 description: 단말에서 리포트 전송 시각 (선택)
+ *               meta:
+ *                 type: object
+ *                 properties:
+ *                   app_ver:
+ *                     type: string
+ *                     example: "1.0.0"
+ *                     description: 앱 버전
+ *                   os:
+ *                     type: string
+ *                     enum: [android, ios]
+ *                     example: "android"
+ *                     description: 단말 OS
+ *                   gps_acc:
+ *                     type: number
+ *                     example: 10.5
+ *                     description: GPS 정확도 (미터 단위)
+ *     responses:
+ *       201:
+ *         description: 혼잡도 리포트 저장 성공
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "혼잡도 리포트가 성공적으로 저장되었습니다."
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     logId:
+ *                       type: string
+ *                       example: "507f1f77bcf86cd799439013"
+ *                     routeId:
+ *                       type: string
+ *                       example: "507f1f77bcf86cd799439011"
+ *                     stopId:
+ *                       type: string
+ *                       example: "507f1f77bcf86cd799439012"
+ *                     departureTime:
+ *                       type: string
+ *                       example: "08:00"
+ *                     dayKey:
+ *                       type: string
+ *                       example: "2025-01-20"
+ *                     level:
+ *                       type: string
+ *                       enum: [LOW, MEDIUM, HIGH]
+ *                       example: "MEDIUM"
+ *                     signal:
+ *                       type: string
+ *                       enum: [BOARDING, FAILED, UNKNOWN]
+ *                       example: "BOARDING"
+ *       400:
+ *         description: 잘못된 요청
+ *       404:
+ *         description: 존재하지 않는 노선 또는 정류장
+ *       500:
+ *         description: 서버 오류
+ */
+router.post('/report', authToken, congestionController.reportCongestionNew);
+
 module.exports = router;
 

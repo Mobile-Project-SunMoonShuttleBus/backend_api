@@ -1,72 +1,87 @@
 const mongoose = require('mongoose');
 
+/**
+ * 혼잡도 리포트 모델 (요구사항 DB_table_crowd-01)
+ * 사용자 단말에서 수집된 혼잡도 개별 리포트 데이터 저장
+ */
 const crowdReportSchema = new mongoose.Schema({
-  busType: {
-    type: String,
-    enum: ['shuttle', 'campus'],
+  route_id: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'ShuttleRoute',
     required: true,
     index: true
   },
-  departure: {
-    type: String,
+  stop_id: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'BusStop',
     required: true,
     index: true
   },
-  arrival: {
+  departure_time: {
     type: String,
+    required: true,
+    match: /^([0-1][0-9]|2[0-3]):[0-5][0-9]$/, // HH:mm 형식
+    index: true
+  },
+  day_key: {
+    type: String,
+    required: true,
+    match: /^\d{4}-\d{2}-\d{2}$/, // YYYY-MM-DD 형식
+    index: true
+  },
+  level: {
+    type: String,
+    enum: ['LOW', 'MEDIUM', 'HIGH'],
     required: true,
     index: true
   },
-  direction: {
+  signal: {
     type: String,
-    enum: ['등교', '하교'],
+    enum: ['BOARDING', 'FAILED', 'UNKNOWN'],
+    required: true,
+    default: 'UNKNOWN'
+  },
+  user_id: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
     default: null,
     index: true
   },
-  departureTime: {
-    type: String,
+  client_ts: {
+    type: Date,
     required: true,
     index: true
   },
-  dayOfWeek: {
-    type: String,
-    enum: ['월', '화', '수', '목', '금', '토', '일'],
-    required: true,
-    index: true
-  },
-  date: {
-    type: String,
-    required: true,
-    index: true
-  },
-  dayType: {
-    type: String,
-    enum: ['평일', '월~목', '금요일', '토요일/공휴일', '일요일'],
-    required: true,
-    index: true
-  },
-  congestionLevel: {
-    type: Number,
-    enum: [0, 1, 2],
-    required: true
-  },
-  reportedBy: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    index: true
-  },
-  reportedAt: {
+  server_ts: {
     type: Date,
     default: Date.now,
     index: true
+  },
+  meta: {
+    app_ver: {
+      type: String,
+      default: null
+    },
+    os: {
+      type: String,
+      enum: ['android', 'ios', null],
+      default: null
+    },
+    gps_acc: {
+      type: Number,
+      default: null
+    }
   }
+}, {
+  timestamps: false, // createdAt, updatedAt 자동 생성 비활성화
+  collection: 'crowd_reports' // 컬렉션 이름 명시
 });
 
-crowdReportSchema.index({ busType: 1, departure: 1, arrival: 1, departureTime: 1, date: 1 });
-crowdReportSchema.index({ busType: 1, departure: 1, arrival: 1, dayOfWeek: 1, departureTime: 1 });
-crowdReportSchema.index({ date: 1, reportedAt: -1 });
+// 복합 인덱스 (집계 쿼리 최적화)
+crowdReportSchema.index({ route_id: 1, stop_id: 1, departure_time: 1, day_key: 1 });
+crowdReportSchema.index({ day_key: 1, server_ts: -1 });
+crowdReportSchema.index({ route_id: 1, stop_id: 1, day_key: 1, departure_time: 1 });
 
 const CrowdReport = mongoose.model('CrowdReport', crowdReportSchema);
 
 module.exports = CrowdReport;
-
