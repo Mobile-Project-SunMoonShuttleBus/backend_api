@@ -14,10 +14,28 @@ const mergeRequestParams = (req) => ({
 
 exports.reportCongestion = async (req, res) => {
   try {
-    const { busType, departure, arrival, direction, departureTime, dayOfWeek, date, dayType, congestionLevel } = mergeRequestParams(req);
+    const params = mergeRequestParams(req);
+    
+    // 디버깅용 로그
+    console.log('>>> /bus/congestion raw body:', req.body);
+    console.log('>>> /bus/congestion merged params:', params);
+    
+    const { busType, departure, arrival, direction, departureTime, dayOfWeek, date, dayType, congestionLevel } = params;
     const userId = req.user.userId;
 
-    if (!busType || !departure || !arrival || !departureTime || !dayOfWeek || !date || !dayType || !congestionLevel) {
+    // 디버깅용 로그: dayOfWeek 값 확인
+    console.log('>>> /bus/congestion dayOfWeek =', JSON.stringify(dayOfWeek), 'typeof =', typeof dayOfWeek);
+    if (dayOfWeek) {
+      console.log('>>> /bus/congestion dayOfWeek charCodes:', Array.from(String(dayOfWeek)).map(c => c.charCodeAt(0)));
+      console.log('>>> /bus/congestion dayOfWeek length:', String(dayOfWeek).length);
+    }
+
+    // congestionLevel은 0도 유효한 값이므로 undefined/null 체크로 변경
+    if (
+      !busType || !departure || !arrival || !departureTime || 
+      !dayOfWeek || !date || !dayType ||
+      congestionLevel === undefined || congestionLevel === null
+    ) {
       return res.status(400).json({
         message: '필수 파라미터가 누락되었습니다.',
         required: ['busType', 'departure', 'arrival', 'departureTime', 'dayOfWeek', 'date', 'dayType', 'congestionLevel']
@@ -37,9 +55,14 @@ exports.reportCongestion = async (req, res) => {
       });
     }
 
-    if (!['월', '화', '수', '목', '금', '토', '일'].includes(dayOfWeek)) {
+    // dayOfWeek 정규화 (공백/개행 제거)
+    const normalizedDayOfWeek = String(dayOfWeek).trim();
+    const validDays = ['월', '화', '수', '목', '금', '토', '일'];
+    
+    if (!validDays.includes(normalizedDayOfWeek)) {
       return res.status(400).json({
-        message: 'dayOfWeek는 "월", "화", "수", "목", "금", "토", "일" 중 하나여야 합니다.'
+        message: 'dayOfWeek는 "월", "화", "수", "목", "금", "토", "일" 중 하나여야 합니다.',
+        received: dayOfWeek  // 디버깅용으로 원본 값도 함께 반환
       });
     }
 
@@ -200,7 +223,7 @@ exports.reportCongestion = async (req, res) => {
       arrival: normalizedArrival,
       direction: busType === 'campus' ? direction : null,
       departureTime,
-      dayOfWeek,
+      dayOfWeek: normalizedDayOfWeek,  // 정규화된 값 사용
       date,
       dayType,
       congestionLevel: congestionLevelNum,
