@@ -5,17 +5,24 @@ const mongoose = require('mongoose');
  * 혼잡도 리포트를 집계한 정류장·시간대별 평균 혼잡도 결과 저장
  */
 const crowdSnapshotSchema = new mongoose.Schema({
-  route_id: {
+  busType: {
+    type: String,
+    enum: ['shuttle', 'campus'],
+    required: true,
+    index: true,
+    description: '버스 타입 (shuttle: 셔틀버스, campus: 통학버스)'
+  },
+  start_id: {
     type: String,
     required: true,
     index: true,
-    description: '노선 이름 (예: "천안 아산역→아산캠퍼스")'
+    description: '출발지 이름 (셔틀: "아산캠퍼스", "아산(KTX)역" 등 / 통학: "성남(분당)", "안산" 등)'
   },
   stop_id: {
     type: String,
     required: true,
     index: true,
-    description: '정류장 이름 (예: "천안 아산역")'
+    description: '도착지 이름 (현재 정류장, 셔틀: "아산캠퍼스", "아산(KTX)역" 등 / 통학: "아산캠퍼스")'
   },
   departure_time: {
     type: String,
@@ -58,9 +65,9 @@ const crowdSnapshotSchema = new mongoose.Schema({
 });
 
 // 복합 인덱스 (조회 쿼리 최적화)
-crowdSnapshotSchema.index({ route_id: 1, stop_id: 1, departure_time: 1, day_key: 1 }, { unique: true });
+crowdSnapshotSchema.index({ busType: 1, start_id: 1, stop_id: 1, departure_time: 1, day_key: 1 }, { unique: true });
 crowdSnapshotSchema.index({ day_key: 1, updated_at: -1 });
-crowdSnapshotSchema.index({ route_id: 1, stop_id: 1, day_key: 1 });
+crowdSnapshotSchema.index({ busType: 1, start_id: 1, stop_id: 1, day_key: 1 });
 
 const CrowdSnapshot = mongoose.model('CrowdSnapshot', crowdSnapshotSchema);
 

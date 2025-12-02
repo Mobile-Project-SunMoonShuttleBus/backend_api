@@ -1487,6 +1487,8 @@ module.exports = {
   crawlAndSaveAll,
   saveSchedulesToDB,
   saveRoutePaths,
-  CRAWL_URLS
+  CRAWL_URLS,
+  normalizeDeparture,
+  normalizeArrival
 };
 

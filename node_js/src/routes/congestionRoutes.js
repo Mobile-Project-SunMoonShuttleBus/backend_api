@@ -27,7 +27,7 @@ const { authToken } = require('../middleware/auth');
  *       - `월`, `화`, `수`, `목`, `금`, `토`, `일`
  *       
  *       **요일 타입:**
- *       - `평일`, `토요일/공휴일`, `일요일`
+ *       - `평일`, `월~목`, `금요일`, `토요일/공휴일`, `일요일`
  *       
  *       **중요:**
  *       - 입력한 출발지/도착지/출발시간/요일타입이 실제 시간표에 존재하는지 검증합니다.
@@ -88,7 +88,7 @@ const { authToken } = require('../middleware/auth');
  *               dayType:
  *                 type: string
  *                 example: "평일"
- *                 description: "요일 타입 (평일/토요일/공휴일/일요일)"
+ *                 description: "요일 타입 (평일, 월~목, 금요일, 토요일/공휴일, 일요일)"
  *               congestionLevel:
  *                 type: integer
  *                 enum: [0, 1, 2]
@@ -182,20 +182,26 @@ router.post('/', authToken, congestionController.reportCongestion);
  *           schema:
  *             type: object
  *             required:
- *               - routeId
+ *               - busType
+ *               - startId
  *               - stopId
  *               - weekday
  *               - timeSlot
  *               - index
  *             properties:
- *               routeId:
+ *               busType:
  *                 type: string
- *                 example: "천안 아산역→아산캠퍼스"
- *                 description: 노선 이름 (예: "천안 아산역→아산캠퍼스")
+ *                 enum: [shuttle, campus]
+ *                 example: "shuttle"
+ *                 description: "버스 타입 (shuttle: 셔틀버스, campus: 통학버스)"
+ *               startId:
+ *                 type: string
+ *                 example: "아산캠퍼스"
+ *                 description: "출발지 이름 (셔틀: '아산캠퍼스', '아산(KTX)역' 등 / 통학: '성남(분당)', '안산' 등)"
  *               stopId:
  *                 type: string
- *                 example: "천안 아산역"
- *                 description: 정류장 이름 (예: "천안 아산역")
+ *                 example: "아산(KTX)역"
+ *                 description: "도착지 이름 (현재 정류장, 셔틀: '아산캠퍼스', '아산(KTX)역' 등 / 통학: '아산캠퍼스')"
  *               weekday:
  *                 type: integer
  *                 minimum: 0
@@ -255,12 +261,15 @@ router.post('/', authToken, congestionController.reportCongestion);
  *                     logId:
  *                       type: string
  *                       example: "507f1f77bcf86cd799439013"
- *                     routeId:
+ *                     busType:
  *                       type: string
- *                       example: "천안 아산역→아산캠퍼스"
+ *                       example: "shuttle"
+ *                     startId:
+ *                       type: string
+ *                       example: "아산캠퍼스"
  *                     stopId:
  *                       type: string
- *                       example: "천안 아산역"
+ *                       example: "아산(KTX)역"
  *                     departureTime:
  *                       type: string
  *                       example: "08:00"

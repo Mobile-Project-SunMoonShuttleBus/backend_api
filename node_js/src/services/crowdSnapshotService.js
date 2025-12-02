@@ -38,16 +38,18 @@ function scoreToLevel(score) {
 
 /**
  * 특정 조건의 리포트들을 집계하여 스냅샷 생성/업데이트
- * @param {string} routeId - 노선 ID
- * @param {string} stopId - 정류장 ID
+ * @param {string} busType - 버스 타입 (shuttle/campus)
+ * @param {string} startId - 출발지 이름
+ * @param {string} stopId - 도착지 이름
  * @param {string} departureTime - 출발 시각 (HH:mm)
  * @param {string} dayKey - 날짜 키 (YYYY-MM-DD)
  */
-async function aggregateAndSaveSnapshot(routeId, stopId, departureTime, dayKey) {
+async function aggregateAndSaveSnapshot(busType, startId, stopId, departureTime, dayKey) {
   try {
     // 해당 조건의 리포트들 조회
     const reports = await CrowdReport.find({
-      route_id: routeId,
+      busType: busType,
+      start_id: startId,
       stop_id: stopId,
       departure_time: departureTime,
       day_key: dayKey
@@ -84,13 +86,15 @@ async function aggregateAndSaveSnapshot(routeId, stopId, departureTime, dayKey) 
     // 스냅샷 생성 또는 업데이트
     const snapshot = await CrowdSnapshot.findOneAndUpdate(
       {
-        route_id: routeId,
+        busType: busType,
+        start_id: startId,
         stop_id: stopId,
         departure_time: departureTime,
         day_key: dayKey
       },
       {
-        route_id: routeId,
+        busType: busType,
+        start_id: startId,
         stop_id: stopId,
         departure_time: departureTime,
         day_key: dayKey,
@@ -127,13 +131,14 @@ async function aggregateDaySnapshots(dayKey) {
       return { processed: 0, snapshots: [] };
     }
 
-    // route_id, stop_id, departure_time별로 그룹화
+    // busType, start_id, stop_id, departure_time별로 그룹화
     const groups = {};
     reports.forEach(report => {
-      const key = `${report.route_id}_${report.stop_id}_${report.departure_time}`;
+      const key = `${report.busType}_${report.start_id}_${report.stop_id}_${report.departure_time}`;
       if (!groups[key]) {
         groups[key] = {
-          route_id: report.route_id,
+          busType: report.busType,
+          start_id: report.start_id,
           stop_id: report.stop_id,
           departure_time: report.departure_time,
           reports: []
@@ -147,7 +152,8 @@ async function aggregateDaySnapshots(dayKey) {
     for (const key in groups) {
       const group = groups[key];
       const snapshot = await aggregateAndSaveSnapshot(
-        group.route_id,
+        group.busType,
+        group.start_id,
         group.stop_id,
         group.departure_time,
         dayKey
@@ -169,14 +175,16 @@ async function aggregateDaySnapshots(dayKey) {
 
 /**
  * 특정 노선·정류장의 모든 리포트를 집계하여 스냅샷 생성
- * @param {string} routeId - 노선 ID
- * @param {string} stopId - 정류장 ID
+ * @param {string} busType - 버스 타입 (shuttle/campus)
+ * @param {string} startId - 출발지 이름
+ * @param {string} stopId - 도착지 이름
  */
-async function aggregateRouteStopSnapshots(routeId, stopId) {
+async function aggregateRouteStopSnapshots(busType, startId, stopId) {
   try {
     // 해당 노선·정류장의 모든 리포트 조회
     const reports = await CrowdReport.find({
-      route_id: routeId,
+      busType: busType,
+      start_id: startId,
       stop_id: stopId
     });
 
@@ -203,7 +211,8 @@ async function aggregateRouteStopSnapshots(routeId, stopId) {
     for (const key in groups) {
       const group = groups[key];
       const snapshot = await aggregateAndSaveSnapshot(
-        routeId,
+        busType,
+        startId,
         stopId,
         group.departure_time,
         group.day_key

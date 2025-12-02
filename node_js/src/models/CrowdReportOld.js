@@ -45,7 +45,7 @@ const crowdReportOldSchema = new mongoose.Schema({
   },
   dayType: {
     type: String,
-    enum: ['평일', '토요일/공휴일', '일요일'],
+    enum: ['평일', '월~목', '금요일', '토요일/공휴일', '일요일'],
     required: true,
     index: true
   },
