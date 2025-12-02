@@ -6,16 +6,16 @@ const mongoose = require('mongoose');
  */
 const crowdReportSchema = new mongoose.Schema({
   route_id: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'ShuttleRoute',
+    type: String,
     required: true,
-    index: true
+    index: true,
+    description: '노선 이름 (예: "천안 아산역→아산캠퍼스")'
   },
   stop_id: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'BusStop',
+    type: String,
     required: true,
-    index: true
+    index: true,
+    description: '정류장 이름 (예: "천안 아산역")'
   },
   departure_time: {
     type: String,

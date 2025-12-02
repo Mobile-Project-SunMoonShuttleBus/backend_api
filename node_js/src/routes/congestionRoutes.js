@@ -27,8 +27,7 @@ const { authToken } = require('../middleware/auth');
  *       - `월`, `화`, `수`, `목`, `금`, `토`, `일`
  *       
  *       **요일 타입:**
- *       - 셔틀버스: `평일`, `토요일/공휴일`, `일요일`
- *       - 통학버스: `평일`, `월~목`, `금요일`, `토요일/공휴일`, `일요일`
+ *       - `평일`, `토요일/공휴일`, `일요일`
  *       
  *       **중요:**
  *       - 입력한 출발지/도착지/출발시간/요일타입이 실제 시간표에 존재하는지 검증합니다.
@@ -63,11 +62,11 @@ const { authToken } = require('../middleware/auth');
  *                 description: 출발지 정류장 이름
  *               arrival:
  *                 type: string
- *                 example: "천안 아산역"
+ *                 example: "아산(KTX)역"
  *                 description: |
  *                   최종 도착지 정류장 이름 (경유지가 아닌 최종 목적지)
  *                   - 경유지를 입력하면 안 됩니다. 반드시 최종 도착지만 입력해야 합니다.
- *                   - 예: "천안 아산역" (O), "온양역" (X - 경유지인 경우)
+ *                   - 예: "아산(KTX)역" (O), "온양역" (X - 경유지인 경우)
  *               direction:
  *                 type: string
  *                 enum: [등교, 하교]
@@ -89,7 +88,7 @@ const { authToken } = require('../middleware/auth');
  *               dayType:
  *                 type: string
  *                 example: "평일"
- *                 description: "요일 타입 (셔틀: 평일/토요일/공휴일/일요일, 통학: 평일/월~목/금요일/토요일/공휴일/일요일)"
+ *                 description: "요일 타입 (평일/토요일/공휴일/일요일)"
  *               congestionLevel:
  *                 type: integer
  *                 enum: [0, 1, 2]
@@ -191,12 +190,12 @@ router.post('/', authToken, congestionController.reportCongestion);
  *             properties:
  *               routeId:
  *                 type: string
- *                 example: "507f1f77bcf86cd799439011"
- *                 description: 노선 식별자 (ObjectId)
+ *                 example: "천안 아산역→아산캠퍼스"
+ *                 description: 노선 이름 (예: "천안 아산역→아산캠퍼스")
  *               stopId:
  *                 type: string
- *                 example: "507f1f77bcf86cd799439012"
- *                 description: 정류장 식별자 (ObjectId)
+ *                 example: "천안 아산역"
+ *                 description: 정류장 이름 (예: "천안 아산역")
  *               weekday:
  *                 type: integer
  *                 minimum: 0
@@ -258,10 +257,10 @@ router.post('/', authToken, congestionController.reportCongestion);
  *                       example: "507f1f77bcf86cd799439013"
  *                     routeId:
  *                       type: string
- *                       example: "507f1f77bcf86cd799439011"
+ *                       example: "천안 아산역→아산캠퍼스"
  *                     stopId:
  *                       type: string
- *                       example: "507f1f77bcf86cd799439012"
+ *                       example: "천안 아산역"
  *                     departureTime:
  *                       type: string
  *                       example: "08:00"

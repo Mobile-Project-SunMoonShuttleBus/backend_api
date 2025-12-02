@@ -54,24 +54,34 @@ exports.reportCongestion = async (req, res) => {
       });
     }
 
-    const validDayTypes = {
-      shuttle: ['평일', '토요일/공휴일', '일요일'],
-      campus: ['평일', '월~목', '금요일', '토요일/공휴일', '일요일']
-    };
+    const validDayTypes = ['평일', '토요일/공휴일', '일요일'];
 
-    if (!validDayTypes[busType].includes(dayType)) {
+    if (!validDayTypes.includes(dayType)) {
       return res.status(400).json({
-        message: `${busType} 버스의 dayType은 ${validDayTypes[busType].join(', ')} 중 하나여야 합니다.`
+        message: `dayType은 ${validDayTypes.join(', ')} 중 하나여야 합니다.`
       });
     }
 
     const BusModel = busType === 'shuttle' ? ShuttleBus : CampusBus;
-    const busFilter = {
-      departure,
-      arrival,
-      departureTime,
-      dayType
-    };
+    
+    // 통학버스의 경우 평일을 월~목과 금요일로 확장하여 검색
+    let busFilter;
+    if (busType === 'campus' && dayType === '평일') {
+      // 통학버스는 평일을 월~목과 금요일로 검색
+      busFilter = {
+        departure,
+        arrival,
+        departureTime,
+        dayType: { $in: ['월~목', '금요일'] }
+      };
+    } else {
+      busFilter = {
+        departure,
+        arrival,
+        departureTime,
+        dayType
+      };
+    }
 
     if (busType === 'campus') {
       busFilter.direction = direction;
@@ -81,13 +91,25 @@ exports.reportCongestion = async (req, res) => {
 
     if (!busSchedule) {
       // 경유지 확인
-      const viaStopsCheck = await BusModel.findOne({
-        departure,
-        'viaStops.name': arrival,
-        departureTime,
-        dayType,
-        ...(busType === 'campus' ? { direction } : {})
-      });
+      let viaStopsFilter;
+      if (busType === 'campus' && dayType === '평일') {
+        viaStopsFilter = {
+          departure,
+          'viaStops.name': arrival,
+          departureTime,
+          dayType: { $in: ['월~목', '금요일'] },
+          ...(busType === 'campus' ? { direction } : {})
+        };
+      } else {
+        viaStopsFilter = {
+          departure,
+          'viaStops.name': arrival,
+          departureTime,
+          dayType,
+          ...(busType === 'campus' ? { direction } : {})
+        };
+      }
+      const viaStopsCheck = await BusModel.findOne(viaStopsFilter);
 
       if (viaStopsCheck) {
         return res.status(400).json({
@@ -106,16 +128,35 @@ exports.reportCongestion = async (req, res) => {
       }
 
       // 디버깅: 유사한 시간표 검색
-      const similarSchedules = await BusModel.find({
-        departure,
-        arrival,
-        dayType
-      }).limit(5);
+      let similarFilter;
+      if (busType === 'campus' && dayType === '평일') {
+        similarFilter = {
+          departure,
+          arrival,
+          dayType: { $in: ['월~목', '금요일'] }
+        };
+      } else {
+        similarFilter = {
+          departure,
+          arrival,
+          dayType
+        };
+      }
+      const similarSchedules = await BusModel.find(similarFilter).limit(5);
 
-      const similarDepartureSchedules = await BusModel.find({
-        departure,
-        dayType
-      }).limit(5);
+      let similarDepartureFilter;
+      if (busType === 'campus' && dayType === '평일') {
+        similarDepartureFilter = {
+          departure,
+          dayType: { $in: ['월~목', '금요일'] }
+        };
+      } else {
+        similarDepartureFilter = {
+          departure,
+          dayType
+        };
+      }
+      const similarDepartureSchedules = await BusModel.find(similarDepartureFilter).limit(5);
 
       return res.status(404).json({
         success: false,
@@ -210,35 +251,37 @@ exports.reportCongestionNew = async (req, res) => {
       });
     }
 
-    // routeId와 stopId가 ObjectId 형식인지 확인
-    if (!mongoose.Types.ObjectId.isValid(routeId)) {
+    // routeId와 stopId가 문자열인지 확인
+    if (typeof routeId !== 'string' || routeId.trim().length === 0) {
       return res.status(400).json({
         success: false,
-        message: 'routeId가 유효한 ObjectId 형식이 아닙니다.'
+        message: 'routeId는 비어있지 않은 문자열이어야 합니다.'
       });
     }
 
-    if (!mongoose.Types.ObjectId.isValid(stopId)) {
+    if (typeof stopId !== 'string' || stopId.trim().length === 0) {
       return res.status(400).json({
         success: false,
-        message: 'stopId가 유효한 ObjectId 형식이 아닙니다.'
+        message: 'stopId는 비어있지 않은 문자열이어야 합니다.'
       });
     }
 
-    // routeId와 stopId가 실제로 존재하는지 확인
-    const route = await ShuttleRoute.findById(routeId);
+    // routeId와 stopId가 실제로 존재하는지 확인 (이름으로 검증)
+    const route = await ShuttleRoute.findOne({ routeName: routeId });
     if (!route) {
       return res.status(404).json({
         success: false,
-        message: '존재하지 않는 노선입니다.'
+        message: '존재하지 않는 노선입니다.',
+        routeId: routeId
       });
     }
 
-    const stop = await BusStop.findById(stopId);
+    const stop = await BusStop.findOne({ name: stopId });
     if (!stop) {
       return res.status(404).json({
         success: false,
-        message: '존재하지 않는 정류장입니다.'
+        message: '존재하지 않는 정류장입니다.',
+        stopId: stopId
       });
     }
 
