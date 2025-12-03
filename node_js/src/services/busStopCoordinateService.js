@@ -3,6 +3,7 @@ const ShuttleBus = require('../models/ShuttleBus');
 const CampusBus = require('../models/CampusBus');
 const { searchStopCoordinates } = require('./naverMapService');
 const { transformStopName } = require('./stopNameTransformer');
+const { getHardcodedStop } = require('../config/hardcodedStops');
 
 // 크롤러 실행 후 정류장 목록 추출
 async function extractAllStopNames() {
@@ -225,7 +226,7 @@ async function getStopCoordinates(stopName) {
   }
 }
 
-// 여러 정류장 좌표 일괄 조회 (DB에서)
+// 여러 정류장 좌표 일괄 조회
 async function getMultipleStopCoordinates(stopNames) {
   try {
     const stops = await BusStop.find({ name: { $in: stopNames } });
@@ -239,6 +240,22 @@ async function getMultipleStopCoordinates(stopNames) {
         address: stop.naverAddress,
         title: stop.naverTitle || null
       };
+    });
+
+    // DB에 없는 정류장은 하드코딩된 좌표 사용
+    stopNames.forEach(stopName => {
+      if (!coordinatesMap[stopName]) {
+        const hardcodedStop = getHardcodedStop(stopName);
+        if (hardcodedStop) {
+          coordinatesMap[stopName] = {
+            latitude: hardcodedStop.latitude,
+            longitude: hardcodedStop.longitude,
+            naverPlaceId: null,
+            address: hardcodedStop.address || null,
+            title: hardcodedStop.title || null
+          };
+        }
+      }
     });
 
     return coordinatesMap;

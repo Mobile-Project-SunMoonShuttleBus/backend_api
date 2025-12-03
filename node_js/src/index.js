@@ -102,9 +102,12 @@ app.use('/api/campus', require('./routes/campusRoutes'));
 app.use('/api/stops', require('./routes/stopRoutes'));
 app.use('/api/timetable', require('./routes/timetableRoutes'));
 app.use('/api/notices', require('./routes/noticeRoutes'));
-app.use('/api/bus/congestion', require('./routes/congestionRoutes'));
-app.use('/api/congestion', require('./routes/congestionRoutes'));
 app.use('/api/bus/route-time', require('./routes/routeTimeRoutes'));
+
+// /api/congestion 라우트 설정
+// /api/congestion의 모든 라우트들 (POST: 조회, /report: 저장, /snapshots: 집계 등)
+app.use('/api/congestion', require('./routes/congestionRoutes'));
+
 app.use('/api/bus/arrival-time', require('./routes/arrivalTimeRoutes'));
 
 // Swagger 설정 (라우트 설정 후 등록해 경로 충돌 방지)
@@ -146,6 +149,10 @@ shuttleBusScheduler.startScheduler();
 // 시간표 자동 크롤링 스케줄러 시작
 const timetableScheduler = require('./services/timetableScheduler');
 timetableScheduler.startScheduler();
+
+// 혼잡도 집계 스케줄러 시작
+const crowdSnapshotScheduler = require('./services/crowdSnapshotScheduler');
+crowdSnapshotScheduler.startScheduler();
 
 // 서버 시작
 app.listen(PORT, HOST, () => {

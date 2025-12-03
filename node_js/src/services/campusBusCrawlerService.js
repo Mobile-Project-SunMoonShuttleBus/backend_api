@@ -298,6 +298,7 @@ async function crawlAndSave() {
 module.exports = {
   crawlAndSave,
   parseCampusBusTable,
-  fetchHtml
+  fetchHtml,
+  normalizeDeparture
 };
 

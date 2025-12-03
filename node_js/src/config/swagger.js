@@ -84,8 +84,8 @@ const options = {
         description: '공지사항'
       },
       {
-        name: 'Bus Congestion',
-        description: '버스 혼잡도'
+        name: 'Congestion',
+        description: '혼잡도 관리 (리포트 저장, 조회, 집계)'
       },
       {
         name: 'Bus Route Time',
