@@ -537,8 +537,23 @@ router.get('/route-path', authToken, shuttleRoutePathController.getRoutePath);
  */
 router.post('/update-schedule', authToken, async (req, res) => {
   try {
-    const result = await busScheduleService.updateAllSchedules();
-    res.json({ message: '시간표 업데이트 완료', result });
+    const { runManually } = require('../services/shuttleBusScheduler');
+    const result = await runManually();
+    if (result.success) {
+      res.json({ 
+        message: '시간표 업데이트 완료', 
+        result: {
+          schedulesFound: result.schedulesFound,
+          saved: result.saved,
+          updated: result.updated
+        }
+      });
+    } else {
+      res.status(500).json({ 
+        message: '시간표 업데이트 실패', 
+        error: result.error 
+      });
+    }
   } catch (error) {
     res.status(500).json({ message: '시간표 업데이트 실패', error: error.message });
   }

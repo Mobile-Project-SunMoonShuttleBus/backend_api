@@ -22,13 +22,20 @@ async function fetchHtml(url) {
       });
       const page = await browser.newPage();
       
+      // 페이지 로드 (DOM이 로드되면 바로 진행, 네트워크 대기 없음)
       await page.goto(url, {
-        waitUntil: 'networkidle2',
-        timeout: 30000
+        waitUntil: 'domcontentloaded',
+        timeout: 15000
       });
       
-      await page.waitForSelector('table', { timeout: 10000 }).catch(() => {});
+      // 테이블이 나타날 때까지 대기 (최대 3초)
+      await page.waitForSelector('table', { timeout: 3000 }).catch(() => {});
       
+      // JavaScript 실행 완료를 위한 최소 대기 (500ms만)
+      // 실제로는 DOM이 로드되면 JavaScript도 거의 동시에 실행되므로 짧은 대기만 필요
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // 최종 HTML 확보 (JavaScript 실행 완료 후)
       const html = await page.evaluate(() => {
         return document.documentElement.outerHTML;
       });
@@ -54,7 +61,7 @@ async function fetchHtml(url) {
   }
 }
 
-// 시간 추출
+// 시간 추출 (시간 형식이면 시간 반환, 아니면 원본 텍스트 반환)
 function extractTimeValue(text) {
   if (!text) return null;
   const cleaned = text.replace(/\s+/g, ' ').trim();
@@ -67,6 +74,28 @@ function extractTimeValue(text) {
       return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
     }
   }
+  return null;
+}
+
+// 도착시간 추출 (시간 형식이면 시간 반환, 텍스트면 텍스트 반환, 없으면 null)
+function extractArrivalTime(text) {
+  if (!text) return null;
+  const cleaned = text.replace(/\s+/g, ' ').trim();
+  if (!cleaned || /^[XΧ]+$/i.test(cleaned)) {
+    return null;
+  }
+  
+  // 시간 형식이 있으면 시간 반환
+  const timeValue = extractTimeValue(cleaned);
+  if (timeValue) {
+    return timeValue;
+  }
+  
+  // 시간 형식이 없지만 텍스트가 있으면 텍스트 반환 (예: "약 1시간 소요", "도착 예정" 등)
+  if (cleaned.length > 0) {
+    return cleaned;
+  }
+  
   return null;
 }
 
@@ -112,6 +141,14 @@ function parseCampusBusTable(html) {
     );
     
     if (isToSchoolTable) {
+      // 헤더에서 도착시간 컬럼 찾기
+      let arrivalColIdx = -1;
+      headerTexts.forEach((text, idx) => {
+        if (text.includes('도착') || text.includes('도착시간') || text.includes('도착지')) {
+          arrivalColIdx = idx;
+        }
+      });
+      
       // 등교 통학버스 파싱
       for (let i = 1; i < rows.length; i++) {
         const $row = $(rows[i]);
@@ -123,9 +160,48 @@ function parseCampusBusTable(html) {
         if (!departure || departure === '') continue;
         
         // 셀 구조: [0] 출발지, [1] 빈 셀, [2] 출발장소, [3] 월~목요일, [4] 금요일, [5] 비고
+        // 또는 도착시간 컬럼이 있을 수 있음
         const departurePlace = cells.length > 2 ? $(cells[2]).text().trim() : '';
-        const weekdayTime = cells.length > 3 ? extractTimeValue($(cells[3]).text()) : null;
-        const fridayTime = cells.length > 4 ? extractTimeValue($(cells[4]).text()) : null;
+        
+        // 출발시간과 도착시간 추출
+        let weekdayDepartureTime = null;
+        let weekdayArrivalTime = null;
+        let fridayDepartureTime = null;
+        let fridayArrivalTime = null;
+        
+        // 헤더 구조에 따라 파싱
+        if (arrivalColIdx >= 0 && arrivalColIdx < cells.length) {
+          // 도착시간 컬럼이 있는 경우
+          const weekdayCell = cells.length > 3 ? $(cells[3]).text().trim() : '';
+          const fridayCell = cells.length > 4 ? $(cells[4]).text().trim() : '';
+          
+          // 출발시간과 도착시간이 같은 셀에 있을 수 있음 (예: "7:30 / 8:30")
+          const weekdayParts = weekdayCell.split(/[/\n]/).map(p => p.trim()).filter(Boolean);
+          const fridayParts = fridayCell.split(/[/\n]/).map(p => p.trim()).filter(Boolean);
+          
+          if (weekdayParts.length >= 1) {
+            weekdayDepartureTime = extractTimeValue(weekdayParts[0]);
+            if (weekdayParts.length >= 2) {
+              weekdayArrivalTime = extractArrivalTime(weekdayParts[1]);
+            } else if (arrivalColIdx < cells.length) {
+              weekdayArrivalTime = extractArrivalTime($(cells[arrivalColIdx]).text());
+            }
+          }
+          
+          if (fridayParts.length >= 1) {
+            fridayDepartureTime = extractTimeValue(fridayParts[0]);
+            if (fridayParts.length >= 2) {
+              fridayArrivalTime = extractArrivalTime(fridayParts[1]);
+            } else if (arrivalColIdx < cells.length) {
+              fridayArrivalTime = extractArrivalTime($(cells[arrivalColIdx]).text());
+            }
+          }
+        } else {
+          // 도착시간 컬럼이 없는 경우 (기존 로직)
+          weekdayDepartureTime = cells.length > 3 ? extractTimeValue($(cells[3]).text()) : null;
+          fridayDepartureTime = cells.length > 4 ? extractTimeValue($(cells[4]).text()) : null;
+        }
+        
         const note = cells.length > 5 ? $(cells[5]).text().trim() : '';
         
         // 경유지 추출 (출발장소에서)
@@ -145,12 +221,12 @@ function parseCampusBusTable(html) {
         }
         
         // 월~목요일 시간표
-        if (weekdayTime) {
+        if (weekdayDepartureTime) {
           schedules.push({
             departure,
             arrival: '아산캠퍼스',
-            departureTime: weekdayTime,
-            arrivalTime: 'X',
+            departureTime: weekdayDepartureTime,
+            arrivalTime: weekdayArrivalTime || 'X',
             direction: '등교',
             dayType: '월~목',
             viaStops: [...viaStops],
@@ -160,12 +236,12 @@ function parseCampusBusTable(html) {
         }
         
         // 금요일 시간표
-        if (fridayTime) {
+        if (fridayDepartureTime) {
           schedules.push({
             departure,
             arrival: '아산캠퍼스',
-            departureTime: fridayTime,
-            arrivalTime: 'X',
+            departureTime: fridayDepartureTime,
+            arrivalTime: fridayArrivalTime || 'X',
             direction: '등교',
             dayType: '금요일',
             viaStops: [...viaStops],
@@ -191,14 +267,51 @@ function parseCampusBusTable(html) {
         .map(a => a.trim().replace(/\s*\([^)]*\)\s*/g, '').trim())
         .filter(a => a && !a.includes('간이정류장'));
       
+      // 헤더에서 도착시간 컬럼 찾기
+      let arrivalColIdx = -1;
+      headerTexts.forEach((text, idx) => {
+        if (text.includes('도착') || text.includes('도착시간') || text.includes('도착지')) {
+          arrivalColIdx = idx;
+        }
+      });
+      
       for (let i = 1; i < rows.length; i++) {
         const $row = $(rows[i]);
         const cells = $row.find('td, th').toArray();
         
         if (cells.length < 2) continue;
         
-        const weekdayTime = extractTimeValue($(cells[0]).text());
-        const fridayTime = extractTimeValue($(cells[1]).text());
+        // 출발시간과 도착시간 추출
+        let weekdayDepartureTime = null;
+        let weekdayArrivalTime = null;
+        let fridayDepartureTime = null;
+        let fridayArrivalTime = null;
+        
+        const weekdayCell = $(cells[0]).text().trim();
+        const fridayCell = cells.length > 1 ? $(cells[1]).text().trim() : '';
+        
+        // 출발시간과 도착시간이 같은 셀에 있을 수 있음 (예: "7:30 / 8:30")
+        const weekdayParts = weekdayCell.split(/[/\n]/).map(p => p.trim()).filter(Boolean);
+        const fridayParts = fridayCell.split(/[/\n]/).map(p => p.trim()).filter(Boolean);
+        
+        if (weekdayParts.length >= 1) {
+          weekdayDepartureTime = extractTimeValue(weekdayParts[0]);
+          if (weekdayParts.length >= 2) {
+            weekdayArrivalTime = extractArrivalTime(weekdayParts[1]);
+          } else if (arrivalColIdx >= 0 && arrivalColIdx < cells.length) {
+            weekdayArrivalTime = extractArrivalTime($(cells[arrivalColIdx]).text());
+          }
+        }
+        
+        if (fridayParts.length >= 1) {
+          fridayDepartureTime = extractTimeValue(fridayParts[0]);
+          if (fridayParts.length >= 2) {
+            fridayArrivalTime = extractArrivalTime(fridayParts[1]);
+          } else if (arrivalColIdx >= 0 && arrivalColIdx < cells.length) {
+            fridayArrivalTime = extractArrivalTime($(cells[arrivalColIdx]).text());
+          }
+        }
+        
         const note = cells.length > 2 ? $(cells[2]).text().trim() : '';
         
         // 각 도착지별로 시간표 생성
@@ -206,12 +319,12 @@ function parseCampusBusTable(html) {
           const normalizedArrival = normalizeDeparture(arrival);
           if (!normalizedArrival) return;
           
-          if (weekdayTime) {
+          if (weekdayDepartureTime) {
             schedules.push({
               departure,
               arrival: normalizedArrival,
-              departureTime: weekdayTime,
-              arrivalTime: 'X',
+              departureTime: weekdayDepartureTime,
+              arrivalTime: weekdayArrivalTime || 'X',
               direction: '하교',
               dayType: '월~목',
               viaStops: [],
@@ -220,12 +333,12 @@ function parseCampusBusTable(html) {
             });
           }
           
-          if (fridayTime) {
+          if (fridayDepartureTime) {
             schedules.push({
               departure,
               arrival: normalizedArrival,
-              departureTime: fridayTime,
-              arrivalTime: 'X',
+              departureTime: fridayDepartureTime,
+              arrivalTime: fridayArrivalTime || 'X',
               direction: '하교',
               dayType: '금요일',
               viaStops: [],

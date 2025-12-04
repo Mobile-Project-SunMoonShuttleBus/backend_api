@@ -70,6 +70,28 @@ function extractTimeValue(text) {
   return null;
 }
 
+// 도착시간 추출 (시간 형식이면 시간 반환, 텍스트면 텍스트 반환, 없으면 null)
+function extractArrivalTime(text) {
+  if (!text) return null;
+  const cleaned = text.replace(/\s+/g, ' ').trim();
+  if (!cleaned || /^[XΧ]+$/i.test(cleaned)) {
+    return null;
+  }
+  
+  // 시간 형식이 있으면 시간 반환
+  const timeValue = extractTimeValue(cleaned);
+  if (timeValue) {
+    return timeValue;
+  }
+  
+  // 시간 형식이 없지만 텍스트가 있으면 텍스트 반환 (예: "약 1시간 소요", "도착 예정" 등)
+  if (cleaned.length > 0) {
+    return cleaned;
+  }
+  
+  return null;
+}
+
 // 출발지 정규화
 function normalizeDeparture(departure) {
   const normalized = {
@@ -144,13 +166,14 @@ function parseCommuterBusTable(html) {
           });
         }
         
+        // 등교 방향은 도착시간이 제공되지 않으므로 'X'로 저장
         // 월~목요일 시간표
         if (weekdayTime) {
           schedules.push({
             departure,
             arrival: '아산캠퍼스',
             departureTime: weekdayTime,
-            arrivalTime: null,
+            arrivalTime: 'X',
             direction: '등교',
             dayType: '월~목',
             viaStops: [...viaStops],
@@ -165,7 +188,7 @@ function parseCommuterBusTable(html) {
             departure,
             arrival: '아산캠퍼스',
             departureTime: fridayTime,
-            arrivalTime: null,
+            arrivalTime: 'X',
             direction: '등교',
             dayType: '금요일',
             viaStops: [...viaStops],
@@ -202,6 +225,7 @@ function parseCommuterBusTable(html) {
         const note = cells.length > 2 ? $(cells[2]).text().trim() : '';
         
         // 각 도착지별로 시간표 생성
+        // 하교 방향은 도착시간이 제공되지 않을 수 있으므로 'X'로 저장
         arrivals.forEach(arrival => {
           const normalizedArrival = normalizeDeparture(arrival);
           if (!normalizedArrival) return;
@@ -211,7 +235,7 @@ function parseCommuterBusTable(html) {
               departure,
               arrival: normalizedArrival,
               departureTime: weekdayTime,
-              arrivalTime: null,
+              arrivalTime: 'X',
               direction: '하교',
               dayType: '월~목',
               viaStops: [],
@@ -225,7 +249,7 @@ function parseCommuterBusTable(html) {
               departure,
               arrival: normalizedArrival,
               departureTime: fridayTime,
-              arrivalTime: null,
+              arrivalTime: 'X',
               direction: '하교',
               dayType: '금요일',
               viaStops: [],
