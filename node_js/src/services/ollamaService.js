@@ -11,6 +11,24 @@ const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
 // llama3.2:3b는 약 2GB, llama3:8b는 약 4.7GB 사용
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'orca-mini:3b';
 
+// Ollama 연결 상태 확인 (최초 1회만)
+let ollamaHealthChecked = false;
+
+/**
+ * Ollama 서버 연결 상태 확인
+ * @returns {Promise<boolean>} 연결 가능 여부
+ */
+async function checkOllamaHealth() {
+  try {
+    const res = await axios.get(`${OLLAMA_BASE_URL}/api/tags`, {
+      timeout: 5000,
+    });
+    return res.status === 200;
+  } catch (error) {
+    return false;
+  }
+}
+
 /**
  * 셔틀 관련 공지인지 분류
  * @param {string} title - 공지 제목
@@ -18,6 +36,33 @@ const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'orca-mini:3b';
  * @returns {Promise<boolean>} 셔틀 관련 여부 (true: 셔틀 관련, false: 무관)
  */
 async function isShuttleRelatedNotice(title, content) {
+  // 최초 1회만 Ollama 상태 확인 (성능 최적화)
+  if (!ollamaHealthChecked) {
+    ollamaHealthChecked = true;
+    const isHealthy = await checkOllamaHealth();
+    if (!isHealthy) {
+      console.error(`❌ Ollama 서버 연결 실패: ${OLLAMA_BASE_URL}`);
+      console.error(`   - 서버가 실행 중인지 확인: docker ps | grep ollama`);
+      console.error(`   - 서버 로그 확인: docker logs ollama`);
+      console.error(`   - Ollama 시작: docker-compose up -d ollama`);
+      throw new Error(`Ollama 서버에 연결할 수 없습니다 (${OLLAMA_BASE_URL}). 서버가 실행 중인지 확인하세요.`);
+    }
+    // 모델 확인
+    try {
+      const modelRes = await axios.get(`${OLLAMA_BASE_URL}/api/tags`, { timeout: 5000 });
+      const models = modelRes.data?.models || [];
+      const hasModel = models.some(m => m.name === OLLAMA_MODEL || m.name.startsWith(OLLAMA_MODEL.split(':')[0]));
+      if (!hasModel) {
+        console.warn(`⚠️ 모델 ${OLLAMA_MODEL}이 다운로드되지 않았습니다.`);
+        console.warn(`   모델 다운로드: docker exec ollama ollama pull ${OLLAMA_MODEL}`);
+      } else {
+        console.log(`✅ Ollama 서버 연결 성공: ${OLLAMA_BASE_URL}, 모델: ${OLLAMA_MODEL}`);
+      }
+    } catch (modelError) {
+      console.warn(`⚠️ 모델 목록 확인 실패:`, modelError.message);
+    }
+  }
+  
   try {
     // 입력 검증 및 정제 (프롬프트 인젝션 방지)
     const sanitizedTitle = (title || '').trim().substring(0, 500); // 최대 500자
@@ -71,13 +116,14 @@ JSON:
         stream: false,
       },
       {
-        timeout: 20000, // 20초 타임아웃 (LLM 처리 시간 여유 확보)
+        timeout: 60000, // 60초 타임아웃 (LLM 처리 시간 여유 확보 - orca-mini:3b는 느릴 수 있음)
       }
     );
 
-    // LLM raw 응답 로깅 (디버깅용)
+    // LLM raw 응답 로깅 (디버깅용 - 전체 응답 확인)
     const rawResponse = (res.data.response || '').trim();
-    console.log(`[LLM RAW] ${rawResponse.substring(0, 500)}${rawResponse.length > 500 ? '...' : ''}`);
+    console.log(`[LLM RAW] ${JSON.stringify(rawResponse)}`);
+    console.log(`[LLM RAW Preview] ${rawResponse.substring(0, 500)}${rawResponse.length > 500 ? '...' : ''}`);
     
     // JSON 파싱 시도
     let parsed = null;
@@ -97,6 +143,7 @@ JSON:
       }
       
       parsed = JSON.parse(jsonStr);
+      console.log(`[LLM PARSED JSON]`, JSON.stringify(parsed, null, 2));
       
       // isShuttle 필드 확인 (다양한 형태 지원)
       if (parsed.isShuttle === true || parsed.isShuttle === 'true' || 
@@ -116,33 +163,53 @@ JSON:
       // JSON 파싱 실패 시 텍스트 기반 파싱 (하위 호환성)
       console.warn(`[LLM 응답 파싱 경고] JSON 파싱 실패, 텍스트 기반 파싱 시도:`, parseError.message);
       
-      const answer = rawResponse.toUpperCase();
+      const answerRaw = rawResponse;
+      const answer = answerRaw.trim().toUpperCase();
       
-      // YES/NO 텍스트 기반 판별 (하위 호환성)
-      const isYes = /^YES\b|^Y\b|^YES\s|^Y\s|TRUE|참|예|관련/.test(answer) || 
-                    answer.includes('YES') || answer.includes('TRUE');
-      const isNo = /^NO\b|^N\b|^NO\s|^N\s|FALSE|거짓|아니오|무관/.test(answer) || 
-                   (answer.includes('NO') && !answer.includes('YES'));
+      console.log(`[LLM FALLBACK] 원본 응답: "${answerRaw}"`);
+      console.log(`[LLM FALLBACK] 대문자 변환: "${answer}"`);
       
-      if (isYes && !isNo) {
+      // server.js와 동일한 방식: A-Z만 남기고 YES/NO 추출
+      const cleaned = answer.replace(/[^A-Z]/g, '');
+      console.log(`[LLM FALLBACK] cleaned (A-Z만): "${cleaned}"`);
+      
+      if (cleaned === 'YES') {
         result = true;
-      } else if (isNo && !isYes) {
+        console.log(`[LLM FALLBACK] YES 매칭 → TRUE`);
+      } else if (cleaned === 'NO') {
         result = false;
+        console.log(`[LLM FALLBACK] NO 매칭 → FALSE`);
       } else {
-        console.warn(`[LLM 응답 파싱 경고] 애매한 응답: "${answer.substring(0, 100)}" → NO로 처리`);
-        result = false;
+        // 애매한 경우: YES가 포함되어 있으면 TRUE로 처리 (더 관대하게)
+        if (answer.includes('YES')) {
+          result = true;
+          console.log(`[LLM FALLBACK] 애매한 응답이지만 "YES" 포함 → TRUE로 처리`);
+        } else {
+          result = false;
+          console.warn(`[LLM FALLBACK] 애매한 응답: "${answer.substring(0, 100)}" → NO로 처리`);
+        }
       }
       
-      console.log(`[LLM FALLBACK] 텍스트 파싱 결과: ${result ? 'YES' : 'NO'}`);
+      console.log(`[LLM FALLBACK] 최종 결과: ${result ? 'YES' : 'NO'}`);
     }
     
     return result;
   } catch (error) {
     // Ollama 서버가 꺼져 있거나 연결 실패 시 에러 로깅 후 예외 던지기
-    console.error(`Ollama 호출 실패 (isShuttleRelatedNotice):`, error.message);
-    if (error.code === 'ECONNREFUSED' || error.code === 'ETIMEDOUT') {
-      console.error(`❌ Ollama 서버에 연결할 수 없습니다 (${OLLAMA_BASE_URL}). 서버가 실행 중인지 확인하세요.`);
+    console.error(`❌ Ollama 호출 실패 (isShuttleRelatedNotice):`, error.message);
+    if (error.code === 'ECONNREFUSED') {
+      console.error(`   - 연결 거부됨: Ollama 서버가 실행 중이지 않을 수 있습니다.`);
+      console.error(`   - 확인: docker ps | grep ollama`);
+      console.error(`   - 시작: docker-compose up -d ollama`);
+    } else if (error.code === 'ETIMEDOUT' || error.message.includes('timeout')) {
+      console.error(`   - 타임아웃: Ollama 서버 응답이 너무 느립니다.`);
+      console.error(`   - 서버 로그 확인: docker logs ollama`);
+    } else if (error.response) {
+      console.error(`   - HTTP ${error.response.status}: ${error.response.statusText}`);
+      console.error(`   - 응답: ${JSON.stringify(error.response.data)}`);
     }
+    console.error(`   - Ollama URL: ${OLLAMA_BASE_URL}`);
+    console.error(`   - 모델: ${OLLAMA_MODEL}`);
     // Ollama 실패 시 예외를 던져서 호출자가 실패를 인지할 수 있도록 함
     throw new Error(`Ollama 연결 실패: ${error.message}`);
   }
@@ -187,7 +254,7 @@ ${sanitizedContent}
         stream: false,
       },
       {
-        timeout: 20000, // 20초 타임아웃 (LLM 처리 시간 여유 확보)
+        timeout: 60000, // 60초 타임아웃 (LLM 처리 시간 여유 확보 - orca-mini:3b는 느릴 수 있음)
       }
     );
 
@@ -206,5 +273,6 @@ ${sanitizedContent}
 module.exports = {
   isShuttleRelatedNotice,
   summarizeNotice,
+  checkOllamaHealth, // 진단용으로 export
 };
 

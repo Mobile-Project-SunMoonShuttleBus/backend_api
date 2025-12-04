@@ -145,5 +145,48 @@ router.get('/shuttle', noticeController.getShuttleNotices);
  */
 router.get('/shuttle/:id', noticeController.getShuttleNoticeDetail);
 
+/**
+ * @swagger
+ * /notices/shuttle/health:
+ *   get:
+ *     summary: Ollama 서버 상태 확인 (진단용)
+ *     description: Ollama 서버 연결 상태를 확인합니다.
+ *     tags: [Notices]
+ *     responses:
+ *       200:
+ *         description: Ollama 서버가 정상적으로 연결됩니다.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                   example: healthy
+ *                 message:
+ *                   type: string
+ *                 ollamaUrl:
+ *                   type: string
+ *                 model:
+ *                   type: string
+ *       503:
+ *         description: Ollama 서버에 연결할 수 없습니다.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status:
+ *                   type: string
+ *                   example: unhealthy
+ *                 message:
+ *                   type: string
+ *                 troubleshooting:
+ *                   type: array
+ *                   items:
+ *                     type: string
+ */
+router.get('/shuttle/health', noticeController.checkOllamaHealth);
+
 module.exports = router;
 

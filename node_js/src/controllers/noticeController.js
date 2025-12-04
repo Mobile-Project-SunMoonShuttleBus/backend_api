@@ -7,6 +7,7 @@ const {
   getShuttleNoticeList,
   getShuttleNoticeDetail,
 } = require('../services/shuttleNoticeService');
+const { checkOllamaHealth } = require('../services/ollamaService');
 
 /**
  * 셔틀 공지 동기화
@@ -29,16 +30,19 @@ exports.syncNotices = async (req, res) => {
       timeoutPromise
     ]);
     console.log('셔틀 공지 동기화 성공:', result);
+    // UTF-8 인코딩 명시
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.json(result);
   } catch (e) {
     console.error('셔틀 공지 동기화 실패:', e);
+    console.error('오류 스택:', e.stack);
     // 에러 메시지 노출 최소화 (보안)
     const errorMessage = e.message && e.message.includes('15분') 
       ? '동기화 작업 시간 초과'
       : '셔틀 공지 동기화 실패';
     res
       .status(500)
-      .json({ message: errorMessage });
+      .json({ message: errorMessage, error: process.env.NODE_ENV === 'development' ? e.message : undefined });
   }
 };
 
@@ -49,6 +53,7 @@ exports.syncNotices = async (req, res) => {
 exports.getShuttleNotices = async (req, res) => {
   try {
     const list = await getShuttleNoticeList();
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.json(list);
   } catch (e) {
     console.error(e);
@@ -73,6 +78,7 @@ exports.getShuttleNoticeDetail = async (req, res) => {
     }
     
     const notice = await getShuttleNoticeDetail(id);
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.json(notice);
   } catch (e) {
     if (e.code === 'NOT_FOUND') {
@@ -84,6 +90,50 @@ exports.getShuttleNoticeDetail = async (req, res) => {
     console.error(e);
     // 에러 메시지 노출 최소화 (보안)
     res.status(500).json({ message: '상세 조회 오류' });
+  }
+};
+
+/**
+ * Ollama 서버 상태 확인 (진단용)
+ * GET /api/notices/shuttle/health
+ */
+exports.checkOllamaHealth = async (req, res) => {
+  try {
+    const isHealthy = await checkOllamaHealth();
+    const ollamaUrl = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
+    const model = process.env.OLLAMA_MODEL || 'orca-mini:3b';
+    
+    if (isHealthy) {
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.json({
+        status: 'healthy',
+        message: 'Ollama 서버가 정상적으로 연결됩니다.',
+        ollamaUrl,
+        model,
+      });
+    } else {
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.status(503).json({
+        status: 'unhealthy',
+        message: 'Ollama 서버에 연결할 수 없습니다.',
+        ollamaUrl,
+        model,
+        troubleshooting: [
+          'docker ps | grep ollama - Ollama 컨테이너가 실행 중인지 확인',
+          'docker logs ollama - Ollama 로그 확인',
+          'docker-compose up -d ollama - Ollama 시작',
+          `docker exec ollama ollama pull ${model} - 모델 다운로드`,
+        ],
+      });
+    }
+  } catch (e) {
+    console.error('Ollama 상태 확인 실패:', e);
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.status(500).json({
+      status: 'error',
+      message: 'Ollama 상태 확인 중 오류가 발생했습니다.',
+      error: e.message,
+    });
   }
 };
 

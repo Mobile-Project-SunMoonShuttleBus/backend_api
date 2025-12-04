@@ -3,7 +3,6 @@ require('dotenv').config({ path: path.join(__dirname, '../../.env') });
 const connectDB = require('../config/database');
 const { runManually: runShuttleManually } = require('./shuttleBusScheduler');
 const campusBusCrawler = require('./campusBusCrawlerService');
-const { updateStopCoordinates } = require('./busStopCoordinateService');
 
 let hasRun = false;
 
@@ -46,21 +45,25 @@ async function runInitialCrawlers() {
       console.error('초기 통학 크롤링 실행 중 오류:', error);
     }
 
-    // 정류장 좌표 자동 조회 및 저장
-    // 정확한 좌표를 위해 특정 정류장은 강제 재조회
-    try {
-      const { updateStopCoordinates } = require('./busStopCoordinateService');
-      const forceUpdateList = ['천안 아산역', '천안역', '천안 터미널', '온양온천역'];
-      const coordinateResult = await updateStopCoordinates(forceUpdateList);
-      if (coordinateResult?.success) {
-        console.log(
-          `정류장 좌표 업데이트 완료: 총 ${coordinateResult.total}개, 기존 ${coordinateResult.existing}개, 신규 ${coordinateResult.new}개, 성공 ${coordinateResult.successCount}개`
-        );
-      } else if (coordinateResult) {
-        console.warn('정류장 좌표 업데이트 실패:', coordinateResult.error);
+    // 정류장 좌표 자동 조회 및 저장 (비활성화: 공지사항 크롤링 우선)
+    // 환경 변수 ENABLE_STOP_COORDINATE_UPDATE=true로 활성화 가능
+    if (process.env.ENABLE_STOP_COORDINATE_UPDATE === 'true') {
+      try {
+        const { updateStopCoordinates } = require('./busStopCoordinateService');
+        const forceUpdateList = ['천안 아산역', '천안역', '천안 터미널', '온양온천역'];
+        const coordinateResult = await updateStopCoordinates(forceUpdateList);
+        if (coordinateResult?.success) {
+          console.log(
+            `정류장 좌표 업데이트 완료: 총 ${coordinateResult.total}개, 기존 ${coordinateResult.existing}개, 신규 ${coordinateResult.new}개, 성공 ${coordinateResult.successCount}개`
+          );
+        } else if (coordinateResult) {
+          console.warn('정류장 좌표 업데이트 실패:', coordinateResult.error);
+        }
+      } catch (error) {
+        console.error('정류장 좌표 업데이트 실행 중 오류:', error);
       }
-    } catch (error) {
-      console.error('정류장 좌표 업데이트 실행 중 오류:', error);
+    } else {
+      console.log('정류장 좌표 업데이트 건너뜀 (ENABLE_STOP_COORDINATE_UPDATE=false 또는 미설정)');
     }
 
     console.log('초기 크롤링 실행: 완료');

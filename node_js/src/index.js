@@ -22,8 +22,9 @@ app.use((req, res, next) => {
 
 
 // 미들웨어
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// UTF-8 인코딩 명시 (한글 처리 보장)
+app.use(express.json({ charset: 'utf-8' }));
+app.use(express.urlencoded({ extended: true, charset: 'utf-8' }));
 
 // 요청 로깅 미들웨어 (디버깅용)
 app.use((req, res, next) => {
