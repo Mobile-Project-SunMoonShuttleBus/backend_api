@@ -244,7 +244,7 @@ function parseCommuterBusTable(html) {
 // 크롤링 및 저장
 async function crawlAndSave() {
   try {
-    console.log('통학버스 크롤링 시작...');
+    console.log('통근버스 크롤링 시작...');
     const html = await fetchHtml(CRAWL_URL);
     const schedules = parseCommuterBusTable(html);
     
@@ -252,42 +252,51 @@ async function crawlAndSave() {
     
     let saved = 0;
     let updated = 0;
+    let failed = 0;
     
     for (const schedule of schedules) {
-      const existing = await CommuterBus.findOne({
-        departure: schedule.departure,
-        arrival: schedule.arrival,
-        departureTime: schedule.departureTime,
-        direction: schedule.direction,
-        dayType: schedule.dayType
-      });
-      
-      if (existing) {
-        await CommuterBus.findOneAndUpdate(
-          { _id: existing._id },
-          {
+      try {
+        const existing = await CommuterBus.findOne({
+          departure: schedule.departure,
+          arrival: schedule.arrival,
+          departureTime: schedule.departureTime,
+          direction: schedule.direction,
+          dayType: schedule.dayType
+        });
+        
+        if (existing) {
+          await CommuterBus.findOneAndUpdate(
+            { _id: existing._id },
+            {
+              ...schedule,
+              crawledAt: new Date()
+            }
+          );
+          updated++;
+        } else {
+          await CommuterBus.create({
             ...schedule,
             crawledAt: new Date()
-          }
-        );
-        updated++;
-      } else {
-        await CommuterBus.create({
-          ...schedule,
-          crawledAt: new Date()
-        });
-        saved++;
+          });
+          saved++;
+        }
+      } catch (error) {
+        console.error(`통근버스 시간표 저장 실패: ${schedule.departure} -> ${schedule.arrival} (${schedule.departureTime})`, error.message);
+        failed++;
       }
     }
+    
+    console.log(`통근버스 저장 완료: 신규 ${saved}개, 업데이트 ${updated}개, 실패 ${failed}개`);
     
     return {
       success: true,
       schedulesFound: schedules.length,
       saved,
-      updated
+      updated,
+      failed
     };
   } catch (error) {
-    console.error('통학버스 크롤링 오류:', error);
+    console.error('통근버스 크롤링 오류:', error);
     return {
       success: false,
       error: error.message

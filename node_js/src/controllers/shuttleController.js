@@ -204,14 +204,22 @@ exports.getShuttleSchedules = async (req, res) => {
     const schedules = await query.exec();
     const total = await ShuttleBus.countDocuments(filter);
 
-    // arrivalTime이 null이면 X로 변환
+    // arrivalTime이 null이거나 undefined이거나 빈 문자열이면 X로 변환, 그 외에는 실제 값 반환
     const formattedSchedules = schedules.map(schedule => {
       const scheduleObj = schedule.toObject ? schedule.toObject() : schedule;
       const arrivalTime = scheduleObj.arrivalTime;
-      return {
-        ...scheduleObj,
-        arrivalTime: (arrivalTime !== null && arrivalTime !== undefined && arrivalTime !== 'X') ? arrivalTime : 'X'
-      };
+      // 실제 도착시간이 있으면 그대로 반환 (null, undefined, 빈 문자열, 'X'만 'X'로 변환)
+      if (arrivalTime && arrivalTime !== 'X' && arrivalTime !== null && arrivalTime !== undefined && String(arrivalTime).trim() !== '') {
+        return {
+          ...scheduleObj,
+          arrivalTime: arrivalTime
+        };
+      } else {
+        return {
+          ...scheduleObj,
+          arrivalTime: 'X'
+        };
+      }
     });
 
     res.json({

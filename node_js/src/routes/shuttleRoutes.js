@@ -189,6 +189,21 @@ router.get('/routes', authToken, shuttleController.getShuttleRoutes);
  *                   type: array
  *                   items:
  *                     $ref: '#/components/schemas/ShuttleSchedule'
+ *                   description: |
+ *                     시간표 목록. 각 항목에는 다음 정보가 포함됩니다:
+ *                     - 출발지, 도착지, 출발시간, 도착시간
+ *                     - 경유지 목록 (viaStops): 각 경유지의 이름과 도착 시간
+ *                     - 경유지의 시간은 해당 경유지에 도착하는 시간이자, 동시에 그 경유지에서 출발하는 시간입니다.
+ *                     
+ *                     예시:
+ *                     - 출발지: "아산캠퍼스", 출발시간: "08:00"
+ *                     - 경유지: [{ name: "천안 아산역", time: "08:30" }]
+ *                     - 도착지: "천안역", 도착시간: "09:00"
+ *                     
+ *                     이 경우:
+ *                     - 08:00에 아산캠퍼스에서 출발
+ *                     - 08:30에 천안 아산역에 도착 (동시에 08:30에 천안 아산역에서 출발)
+ *                     - 09:00에 천안역에 도착
  *       500:
  *         description: 서버 오류
  */

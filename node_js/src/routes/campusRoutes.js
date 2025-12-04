@@ -150,6 +150,52 @@ router.get('/routes', authToken, campusController.getCampusRoutes);
  *     responses:
  *       200:
  *         description: 시간표 조회 성공
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 total:
+ *                   type: integer
+ *                   description: 전체 개수
+ *                 count:
+ *                   type: integer
+ *                   description: 현재 페이지 개수
+ *                 page:
+ *                   type: integer
+ *                   nullable: true
+ *                   description: 페이지 번호
+ *                 limit:
+ *                   type: integer
+ *                   nullable: true
+ *                   description: 페이지당 개수
+ *                 filters:
+ *                   type: object
+ *                   description: 적용된 필터
+ *                 viaStopsSummary:
+ *                   type: array
+ *                   items:
+ *                     type: string
+ *                   description: 경유지 목록 요약
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/CampusSchedule'
+ *                   description: |
+ *                     시간표 목록. 각 항목에는 다음 정보가 포함됩니다:
+ *                     - 출발지, 도착지, 출발시간, 도착시간, 방향(등교/하교)
+ *                     - 경유지 목록 (viaStops): 각 경유지의 이름과 도착 시간
+ *                     - 경유지의 시간은 해당 경유지에 도착하는 시간이자, 동시에 그 경유지에서 출발하는 시간입니다.
+ *                     
+ *                     예시:
+ *                     - 출발지: "성남(분당)", 출발시간: "07:00", 방향: "등교"
+ *                     - 경유지: [{ name: "죽전", time: "07:30" }]
+ *                     - 도착지: "아산캠퍼스", 도착시간: "08:00"
+ *                     
+ *                     이 경우:
+ *                     - 07:00에 성남(분당)에서 출발
+ *                     - 07:30에 죽전에 도착 (동시에 07:30에 죽전에서 출발)
+ *                     - 08:00에 아산캠퍼스에 도착
  *       500:
  *         description: 서버 오류
  */

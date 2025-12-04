@@ -252,39 +252,48 @@ async function crawlAndSave() {
     
     let saved = 0;
     let updated = 0;
+    let failed = 0;
     
     for (const schedule of schedules) {
-      const existing = await CampusBus.findOne({
-        departure: schedule.departure,
-        arrival: schedule.arrival,
-        departureTime: schedule.departureTime,
-        direction: schedule.direction,
-        dayType: schedule.dayType
-      });
-      
-      if (existing) {
-        await CampusBus.findOneAndUpdate(
-          { _id: existing._id },
-          {
+      try {
+        const existing = await CampusBus.findOne({
+          departure: schedule.departure,
+          arrival: schedule.arrival,
+          departureTime: schedule.departureTime,
+          direction: schedule.direction,
+          dayType: schedule.dayType
+        });
+        
+        if (existing) {
+          await CampusBus.findOneAndUpdate(
+            { _id: existing._id },
+            {
+              ...schedule,
+              crawledAt: new Date()
+            }
+          );
+          updated++;
+        } else {
+          await CampusBus.create({
             ...schedule,
             crawledAt: new Date()
-          }
-        );
-        updated++;
-      } else {
-        await CampusBus.create({
-          ...schedule,
-          crawledAt: new Date()
-        });
-        saved++;
+          });
+          saved++;
+        }
+      } catch (error) {
+        console.error(`통학버스 시간표 저장 실패: ${schedule.departure} -> ${schedule.arrival} (${schedule.departureTime})`, error.message);
+        failed++;
       }
     }
+    
+    console.log(`통학버스 저장 완료: 신규 ${saved}개, 업데이트 ${updated}개, 실패 ${failed}개`);
     
     return {
       success: true,
       schedulesFound: schedules.length,
       saved,
-      updated
+      updated,
+      failed
     };
   } catch (error) {
     console.error('통학버스 크롤링 오류:', error);
