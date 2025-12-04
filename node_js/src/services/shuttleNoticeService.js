@@ -604,6 +604,8 @@ async function syncShuttleNotices() {
     const busKeyword = /셔틀|셔틀 버스|통학 버스|심야버스|정류장|노선|운행|통학|셔틀 차량/;
     const candidates = rawList.filter((n) => {
       const title = n.title || '';
+      return busKeyword.test(title);
+    });
     
     console.log(`📊 셔틀 후보 개수(프리필터 후): ${candidates.length}개 (전체 ${rawList.length}개 중)`);
 
