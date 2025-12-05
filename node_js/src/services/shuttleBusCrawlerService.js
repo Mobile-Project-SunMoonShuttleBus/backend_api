@@ -1,5 +1,6 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
+const https = require('https');
 const ShuttleBus = require('../models/ShuttleBus');
 let puppeteer = null;
 try {
@@ -7,6 +8,11 @@ try {
 } catch (e) {
   // puppeteer가 설치되지 않은 경우 무시
 }
+
+// Docker 환경 SSL 인증서 에러 무시
+const httpsAgent = new https.Agent({
+  rejectUnauthorized: false
+});
 
 // 크롤링할 URL 목록
 const CRAWL_URLS = {
@@ -35,8 +41,9 @@ async function fetchHtml(url) {
     console.log(`[fetchHtml] axios로 시도: ${url}`);
     const response = await axios.get(url, {
       timeout: 15000,
+      httpsAgent: httpsAgent,
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
       }
     });
     
