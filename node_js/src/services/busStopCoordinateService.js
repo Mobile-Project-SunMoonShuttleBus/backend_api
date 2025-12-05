@@ -79,6 +79,26 @@ async function updateStopCoordinates(forceUpdateNames = []) {
 
     for (const stopName of newStopNames) {
       try {
+        const hardcodedStop = getHardcodedStop(stopName);
+        if (hardcodedStop) {
+          await BusStop.findOneAndUpdate(
+            { name: stopName },
+            {
+              name: stopName,
+              latitude: hardcodedStop.latitude,
+              longitude: hardcodedStop.longitude,
+              naverPlaceId: null,
+              naverAddress: hardcodedStop.address || null,
+              naverTitle: hardcodedStop.title || null,
+              lastUpdated: new Date()
+            },
+            { upsert: true }
+          );
+          successCount++;
+          console.log(`✓ ${stopName} 하드코딩 좌표 저장 완료 (${hardcodedStop.latitude}, ${hardcodedStop.longitude})`);
+          continue;
+        }
+        
         let result = null;
         let found = false;
         

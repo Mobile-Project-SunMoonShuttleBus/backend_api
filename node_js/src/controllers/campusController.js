@@ -190,13 +190,64 @@ exports.getCampusSchedules = async (req, res) => {
     const schedules = await query.exec();
     const total = await CampusBus.countDocuments(filter);
 
-    // arrivalTime이 null이면 X로 변환
+    const allStopNames = new Set();
+    schedules.forEach(schedule => {
+      if (schedule.departure) allStopNames.add(schedule.departure);
+      if (schedule.arrival) allStopNames.add(schedule.arrival);
+      if (schedule.viaStops && Array.isArray(schedule.viaStops)) {
+        schedule.viaStops.forEach(via => {
+          if (via.name) allStopNames.add(via.name);
+        });
+      }
+    });
+
+    const { getMultipleStopCoordinates } = require('../services/busStopCoordinateService');
+    const coordinatesMap = await getMultipleStopCoordinates(Array.from(allStopNames));
+
     const formattedSchedules = schedules.map(schedule => {
       const scheduleObj = schedule.toObject ? schedule.toObject() : schedule;
       const arrivalTime = scheduleObj.arrivalTime;
+      
+      const departureCoords = coordinatesMap[scheduleObj.departure];
+      const departureCoordinates = departureCoords ? {
+        latitude: departureCoords.latitude,
+        longitude: departureCoords.longitude,
+        naverPlaceId: departureCoords.naverPlaceId || null,
+        address: departureCoords.address || null,
+        title: departureCoords.title || null
+      } : null;
+
+      const arrivalCoords = coordinatesMap[scheduleObj.arrival];
+      const arrivalCoordinates = arrivalCoords ? {
+        latitude: arrivalCoords.latitude,
+        longitude: arrivalCoords.longitude,
+        naverPlaceId: arrivalCoords.naverPlaceId || null,
+        address: arrivalCoords.address || null,
+        title: arrivalCoords.title || null
+      } : null;
+
+      const viaStopsWithCoordinates = scheduleObj.viaStops && Array.isArray(scheduleObj.viaStops) 
+        ? scheduleObj.viaStops.map(via => {
+            const viaCoords = coordinatesMap[via.name];
+            return {
+              ...via,
+              coordinates: viaCoords ? {
+                latitude: viaCoords.latitude,
+                longitude: viaCoords.longitude,
+                naverPlaceId: viaCoords.naverPlaceId || null,
+                address: viaCoords.address || null,
+                title: viaCoords.title || null
+              } : null
+            };
+          })
+        : [];
+
       return {
         ...scheduleObj,
-        arrivalTime: (arrivalTime !== null && arrivalTime !== undefined && arrivalTime !== 'X') ? arrivalTime : 'X'
+        arrivalTime: (arrivalTime !== null && arrivalTime !== undefined && arrivalTime !== 'X') ? arrivalTime : 'X',
+        departureCoordinates,
+        arrivalCoordinates,
+        viaStops: viaStopsWithCoordinates
       };
     });
 
