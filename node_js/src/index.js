@@ -78,6 +78,10 @@ let isServerReady = false;
 // 서버 시작 전에 초기화 시작
 console.log('[시작] 서버 초기화 프로세스 시작');
 
+// 혼잡도 웹페이지 라우트 (서버 준비 상태 확인 전에 등록, 인증 없이 접근 가능)
+const congestionController = require('./controllers/congestionController');
+app.get('/congestion/view', congestionController.renderCongestionView);
+
 // 서버 준비 상태 확인 미들웨어
 app.use((req, res, next) => {
   // DB 연결 상태 확인

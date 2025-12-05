@@ -596,5 +596,9 @@ router.get('/snapshots/status', authToken, congestionController.getSnapshotStatu
  */
 router.get('/snapshots/stats', authToken, congestionController.getSnapshotStats);
 
+// 혼잡도 웹페이지 (인증 없이 접근 가능)
+router.get('/view', congestionController.renderCongestionView);
+router.post('/view/data', congestionController.getCongestionViewData);
+
 module.exports = router;
 

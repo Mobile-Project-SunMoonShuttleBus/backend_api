@@ -740,3 +740,493 @@ exports.getSnapshotStats = async (req, res) => {
   }
 };
 
+/**
+ * 혼잡도 웹페이지 렌더링 (인증 없이 접근 가능)
+ * GET /congestion/view
+ */
+exports.renderCongestionView = async (req, res) => {
+  try {
+    const html = `
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>실시간 혼잡도 모니터링</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      padding: 20px;
+    }
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+    .header {
+      background: white;
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 20px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+    .header h1 {
+      color: #333;
+      font-size: 28px;
+      margin-bottom: 8px;
+    }
+    .header .subtitle {
+      color: #666;
+      font-size: 14px;
+    }
+    .status-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid #eee;
+    }
+    .status-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #4caf50;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+    .tabs {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    .tab {
+      background: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 16px;
+      font-weight: 600;
+      transition: all 0.3s;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+    .tab:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+    }
+    .tab.active {
+      background: #667eea;
+      color: white;
+    }
+    .content {
+      display: none;
+    }
+    .content.active {
+      display: block;
+    }
+    .card {
+      background: white;
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 20px;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+    .card-title {
+      font-size: 20px;
+      font-weight: 600;
+      color: #333;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .route-list {
+      display: grid;
+      gap: 16px;
+    }
+    .route-item {
+      background: #f8f9fa;
+      border-radius: 8px;
+      padding: 16px;
+      border-left: 4px solid #667eea;
+    }
+    .route-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    .route-name {
+      font-size: 16px;
+      font-weight: 600;
+      color: #333;
+    }
+    .route-meta {
+      font-size: 12px;
+      color: #666;
+    }
+    .time-slots {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+      gap: 8px;
+      margin-top: 12px;
+    }
+    .time-slot {
+      background: white;
+      border-radius: 6px;
+      padding: 10px;
+      text-align: center;
+      border: 2px solid transparent;
+      transition: all 0.2s;
+    }
+    .time-slot:hover {
+      transform: scale(1.05);
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+    .time-slot.low {
+      border-color: #4caf50;
+      background: #e8f5e9;
+    }
+    .time-slot.medium {
+      border-color: #ff9800;
+      background: #fff3e0;
+    }
+    .time-slot.high {
+      border-color: #f44336;
+      background: #ffebee;
+    }
+    .time-slot .time {
+      font-size: 14px;
+      font-weight: 600;
+      color: #333;
+      margin-bottom: 4px;
+    }
+    .time-slot .level {
+      font-size: 12px;
+      font-weight: 500;
+    }
+    .time-slot.low .level {
+      color: #2e7d32;
+    }
+    .time-slot.medium .level {
+      color: #e65100;
+    }
+    .time-slot.high .level {
+      color: #c62828;
+    }
+    .time-slot .samples {
+      font-size: 10px;
+      color: #999;
+      margin-top: 4px;
+    }
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: #999;
+    }
+    .empty-state-icon {
+      font-size: 48px;
+      margin-bottom: 16px;
+    }
+    .loading {
+      text-align: center;
+      padding: 40px;
+      color: #666;
+    }
+    .spinner {
+      border: 3px solid #f3f3f3;
+      border-top: 3px solid #667eea;
+      border-radius: 50%;
+      width: 40px;
+      height: 40px;
+      animation: spin 1s linear infinite;
+      margin: 0 auto 16px;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    .error {
+      background: #ffebee;
+      color: #c62828;
+      padding: 16px;
+      border-radius: 8px;
+      margin: 20px 0;
+      border-left: 4px solid #c62828;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>실시간 혼잡도 모니터링</h1>
+      <div class="subtitle">선문대학교 셔틀버스 및 통학버스 혼잡도 현황</div>
+      <div class="status-bar">
+        <div class="status-item">
+          <div class="status-dot"></div>
+          <span>실시간 업데이트 중</span>
+        </div>
+        <div class="status-item">
+          <span id="lastUpdate">로딩 중...</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="tabs">
+      <button class="tab active" onclick="switchTab('shuttle')">셔틀버스</button>
+      <button class="tab" onclick="switchTab('campus')">통학버스</button>
+    </div>
+
+    <div id="shuttle-content" class="content active">
+      <div class="card">
+        <div class="card-title">셔틀버스 혼잡도</div>
+        <div id="shuttle-data" class="loading">
+          <div class="spinner"></div>
+          <div>데이터를 불러오는 중...</div>
+        </div>
+      </div>
+    </div>
+
+    <div id="campus-content" class="content">
+      <div class="card">
+        <div class="card-title">통학버스 혼잡도</div>
+        <div id="campus-data" class="loading">
+          <div class="spinner"></div>
+          <div>데이터를 불러오는 중...</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let currentTab = 'shuttle';
+    let updateInterval = null;
+
+    function switchTab(tab) {
+      currentTab = tab;
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.content').forEach(c => c.classList.remove('active'));
+      event.target.classList.add('active');
+      document.getElementById(tab + '-content').classList.add('active');
+      loadData();
+    }
+
+    function formatTime(date) {
+      const hours = String(date.getHours()).padStart(2, '0');
+      const minutes = String(date.getMinutes()).padStart(2, '0');
+      const seconds = String(date.getSeconds()).padStart(2, '0');
+      return hours + ':' + minutes + ':' + seconds;
+    }
+
+    function updateLastUpdateTime() {
+      const now = new Date();
+      document.getElementById('lastUpdate').textContent = '마지막 업데이트: ' + formatTime(now);
+    }
+
+    function getLevelClass(level) {
+      if (level === 'LOW') return 'low';
+      if (level === 'MEDIUM') return 'medium';
+      return 'high';
+    }
+
+    function getLevelText(level) {
+      if (level === 'LOW') return '여유';
+      if (level === 'MEDIUM') return '보통';
+      return '혼잡';
+    }
+
+    function groupByRoute(data) {
+      const routeMap = new Map();
+      data.forEach(item => {
+        const key = item.startId + ' → ' + item.stopId;
+        if (!routeMap.has(key)) {
+          routeMap.set(key, {
+            routeName: key,
+            startId: item.startId,
+            stopId: item.stopId,
+            timeSlots: []
+          });
+        }
+        routeMap.get(key).timeSlots.push({
+          time: item.departureTime,
+          level: item.topLevel,
+          avgScore: item.avgLevelScore,
+          samples: item.samples,
+          dayKey: item.dayKey
+        });
+      });
+      return Array.from(routeMap.values());
+    }
+
+    function renderData(containerId, data) {
+      const container = document.getElementById(containerId);
+      if (!data || data.length === 0) {
+        container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📊</div><div>현재 혼잡도 데이터가 없습니다.</div></div>';
+        return;
+      }
+
+      const routes = groupByRoute(data);
+      routes.forEach(route => {
+        route.timeSlots.sort((a, b) => a.time.localeCompare(b.time));
+      });
+
+      let html = '<div class="route-list">';
+      routes.forEach(route => {
+        html += '<div class="route-item">';
+        html += '<div class="route-header">';
+        html += '<div class="route-name">' + route.routeName + '</div>';
+        html += '<div class="route-meta">' + route.timeSlots.length + '개 시간대</div>';
+        html += '</div>';
+        html += '<div class="time-slots">';
+        route.timeSlots.forEach(slot => {
+          html += '<div class="time-slot ' + getLevelClass(slot.level) + '">';
+          html += '<div class="time">' + slot.time + '</div>';
+          html += '<div class="level">' + getLevelText(slot.level) + '</div>';
+          html += '<div class="samples">' + slot.samples + '건</div>';
+          html += '</div>';
+        });
+        html += '</div>';
+        html += '</div>';
+      });
+      html += '</div>';
+      container.innerHTML = html;
+    }
+
+    async function loadData() {
+      try {
+        const busType = currentTab;
+        const today = new Date().toISOString().split('T')[0];
+        
+        const response = await fetch('/api/congestion/view/data', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            busType: busType,
+            dayKey: today
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error('데이터 로드 실패');
+        }
+
+        const result = await response.json();
+        const containerId = busType + '-data';
+        renderData(containerId, result.data || []);
+        updateLastUpdateTime();
+      } catch (error) {
+        const containerId = currentTab + '-data';
+        document.getElementById(containerId).innerHTML = 
+          '<div class="error">데이터를 불러오는 중 오류가 발생했습니다: ' + error.message + '</div>';
+        console.error('데이터 로드 오류:', error);
+      }
+    }
+
+    function startAutoUpdate() {
+      loadData();
+      if (updateInterval) {
+        clearInterval(updateInterval);
+      }
+      updateInterval = setInterval(loadData, 5000);
+    }
+
+    window.addEventListener('load', () => {
+      startAutoUpdate();
+    });
+
+    window.addEventListener('beforeunload', () => {
+      if (updateInterval) {
+        clearInterval(updateInterval);
+      }
+    });
+  </script>
+</body>
+</html>
+    `;
+    res.send(html);
+  } catch (error) {
+    console.error('혼잡도 웹페이지 렌더링 오류:', error);
+    res.status(500).send('웹페이지 로드 중 오류가 발생했습니다.');
+  }
+};
+
+/**
+ * 혼잡도 웹페이지용 데이터 API (인증 없이 접근 가능)
+ * POST /api/congestion/view/data
+ */
+exports.getCongestionViewData = async (req, res) => {
+  try {
+    const { busType, startId, stopId, departureTime, dayKey } = req.body;
+
+    const filter = {};
+
+    if (busType && ['shuttle', 'campus'].includes(busType)) {
+      filter.busType = busType;
+    }
+
+    if (startId && typeof startId === 'string' && startId.trim().length > 0) {
+      const normalizeFunc = busType === 'campus' ? normalizeCampusDeparture : normalizeShuttleDeparture;
+      const normalizedStartId = normalizeFunc(startId.trim());
+      filter.start_id = normalizedStartId;
+    }
+
+    if (stopId && typeof stopId === 'string' && stopId.trim().length > 0) {
+      const normalizedStopId = normalizeShuttleArrival(stopId.trim());
+      filter.stop_id = normalizedStopId;
+    }
+
+    if (departureTime && /^([0-1][0-9]|2[0-3]):[0-5][0-9]$/.test(departureTime)) {
+      filter.departure_time = departureTime;
+    }
+
+    if (dayKey && /^\d{4}-\d{2}-\d{2}$/.test(dayKey)) {
+      filter.day_key = dayKey;
+    }
+
+    const snapshots = await CrowdSnapshot.find(filter).sort({ day_key: -1, departure_time: 1, updated_at: -1 });
+
+    const data = snapshots.map(snapshot => ({
+      id: snapshot._id,
+      busType: snapshot.busType,
+      startId: snapshot.start_id,
+      stopId: snapshot.stop_id,
+      departureTime: snapshot.departure_time,
+      dayKey: snapshot.day_key,
+      samples: snapshot.samples,
+      avgLevelScore: snapshot.avg_level_score,
+      topLevel: snapshot.top_level,
+      updatedAt: snapshot.updated_at
+    }));
+
+    res.status(200).json({
+      success: true,
+      total: data.length,
+      data
+    });
+  } catch (error) {
+    console.error('혼잡도 웹페이지 데이터 조회 오류:', error);
+    res.status(500).json({
+      success: false,
+      message: '혼잡도 조회 중 오류가 발생했습니다.',
+      error: error.message
+    });
+  }
+};
+

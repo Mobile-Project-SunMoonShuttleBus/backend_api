@@ -36,7 +36,7 @@ const options = {
     info: {
       title: '셔틀버스 API',
       version: '1.0.0',
-      description: '선문대학교 셔틀버스 시간표 및 정류장 정보 API',
+      description: '선문대학교 셔틀버스 시간표 및 정류장 정보 API\n\n🔗 [혼잡도 실시간 모니터링](/congestion/view)',
       contact: {
         name: 'API Support'
       }
@@ -257,6 +257,56 @@ const swaggerSetup = (app) => {
   app.use('/api', swaggerUi.serve);
   app.get('/api', swaggerUi.setup(swaggerSpec, {
     customSiteTitle: '셔틀버스 API 문서',
+    customCss: `
+      .swagger-ui .topbar { display: none; }
+      .swagger-ui .info { margin: 20px 0; }
+      .swagger-ui .info .title { margin-bottom: 10px; }
+      .swagger-ui .info .description { margin-bottom: 20px; }
+      .swagger-ui .info .description a {
+        display: inline-block;
+        margin-top: 10px;
+        padding: 10px 16px;
+        background: #667eea;
+        color: white;
+        text-decoration: none;
+        border-radius: 6px;
+        font-weight: 500;
+      }
+      .swagger-ui .info .description a:hover {
+        background: #5568d3;
+      }
+      .congestion-view-link {
+        display: block;
+        margin: 20px 0;
+        padding: 16px;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        text-align: center;
+        text-decoration: none;
+        border-radius: 8px;
+        font-size: 16px;
+        font-weight: 600;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        transition: transform 0.2s;
+      }
+      .congestion-view-link:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+      }
+    `,
+    customJs: `
+      window.addEventListener('DOMContentLoaded', function() {
+        const infoSection = document.querySelector('.swagger-ui .info');
+        if (infoSection) {
+          const link = document.createElement('a');
+          link.href = '/congestion/view';
+          link.className = 'congestion-view-link';
+          link.textContent = '🔗 혼잡도 실시간 모니터링 보기';
+          link.target = '_blank';
+          infoSection.appendChild(link);
+        }
+      });
+    `,
     swaggerOptions: {
       persistAuthorization: true,
       tryItOutEnabled: true,
