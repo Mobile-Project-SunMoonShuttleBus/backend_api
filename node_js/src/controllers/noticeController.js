@@ -24,25 +24,31 @@ exports.syncNotices = async (req, res) => {
   });
 
   try {
-    console.log('셔틀 공지 동기화 요청 시작 (타임아웃: 15분)');
+    console.log('==== [Start] 셔틀 공지사항 동기화 요청 (Notices) ====');
+    // 여기서 실행되는 함수가 'syncShuttleNotices'인지 확인 (시간표 크롤링 아님)
     const result = await Promise.race([
       syncShuttleNotices(),
       timeoutPromise
     ]);
-    console.log('셔틀 공지 동기화 성공:', result);
+    
+    console.log('==== [Success] 셔틀 공지 동기화 완료:', result);
+    
     // UTF-8 인코딩 명시
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.json(result);
+
   } catch (e) {
-    console.error('셔틀 공지 동기화 실패:', e);
-    console.error('오류 스택:', e.stack);
+    console.error('==== [Error] 셔틀 공지 동기화 실패:', e);
+    
     // 에러 메시지 노출 최소화 (보안)
     const errorMessage = e.message && e.message.includes('15분') 
       ? '동기화 작업 시간 초과'
       : '셔틀 공지 동기화 실패';
-    res
-      .status(500)
-      .json({ message: errorMessage, error: process.env.NODE_ENV === 'development' ? e.message : undefined });
+      
+    res.status(500).json({ 
+      message: errorMessage, 
+      error: process.env.NODE_ENV === 'development' ? e.message : undefined 
+    });
   }
 };
 
@@ -56,8 +62,7 @@ exports.getShuttleNotices = async (req, res) => {
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.json(list);
   } catch (e) {
-    console.error(e);
-    // 에러 메시지 노출 최소화 (보안)
+    console.error('공지 리스트 조회 실패:', e);
     res.status(500).json({ message: '조회 오류' });
   }
 };
@@ -70,25 +75,26 @@ exports.getShuttleNoticeDetail = async (req, res) => {
   try {
     const { id } = req.params;
     
-    // "sync" 같은 특수 경로가 ID로 들어온 경우 명확한 에러 메시지 제공
-    if (id === 'sync') {
+    // 방어 코드: 라우팅 순서가 잘못되어 특수 경로가 ID로 들어오는 경우 차단
+    if (id === 'sync' || id === 'health') {
       return res.status(400).json({ 
-        message: '동기화 엔드포인트입니다. 공지 상세 조회는 GET /api/notices/shuttle/{공지ID} 형식으로 요청해주세요.' 
+        message: `잘못된 요청입니다. '${id}'는 공지 ID가 될 수 없습니다.` 
       });
     }
     
     const notice = await getShuttleNoticeDetail(id);
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.json(notice);
+
   } catch (e) {
     if (e.code === 'NOT_FOUND') {
-      return res.status(404).json({ message: '공지 없음' });
+      return res.status(404).json({ message: '해당 공지를 찾을 수 없습니다.' });
     }
     if (e.code === 'INVALID_ID') {
       return res.status(400).json({ message: '잘못된 공지 ID 형식입니다. MongoDB ObjectId 형식(24자리 16진수)이 필요합니다.' });
     }
-    console.error(e);
-    // 에러 메시지 노출 최소화 (보안)
+    
+    console.error('공지 상세 조회 실패:', e);
     res.status(500).json({ message: '상세 조회 오류' });
   }
 };
@@ -103,8 +109,9 @@ exports.checkOllamaHealth = async (req, res) => {
     const ollamaUrl = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
     const model = process.env.OLLAMA_MODEL || 'orca-mini:3b';
     
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+
     if (isHealthy) {
-      res.setHeader('Content-Type', 'application/json; charset=utf-8');
       res.json({
         status: 'healthy',
         message: 'Ollama 서버가 정상적으로 연결됩니다.',
@@ -112,7 +119,6 @@ exports.checkOllamaHealth = async (req, res) => {
         model,
       });
     } else {
-      res.setHeader('Content-Type', 'application/json; charset=utf-8');
       res.status(503).json({
         status: 'unhealthy',
         message: 'Ollama 서버에 연결할 수 없습니다.',
@@ -136,4 +142,3 @@ exports.checkOllamaHealth = async (req, res) => {
     });
   }
 };
-

@@ -17,7 +17,10 @@ async function runInitialCrawlers() {
 
     console.log('초기 크롤링 실행: 셔틀·통학 버스 데이터 동기화 시작');
 
-    // 셔틀버스 데이터 크롤링
+    // 셔틀버스 데이터 크롤링 (임시 비활성화: 공지사항 크롤링 테스트 우선)
+    // TODO: 시간표 크롤링이 특정 페이지에서 멈추는 문제 해결 후 재활성화 필요
+    console.log('[초기화] 셔틀 시간표 자동 크롤링은 일시적으로 비활성화했습니다. (공지사항 크롤링 테스트 우선)');
+    /*
     try {
       const shuttleResult = await runShuttleManually();
       if (shuttleResult?.success) {
@@ -30,8 +33,11 @@ async function runInitialCrawlers() {
     } catch (error) {
       console.error('초기 셔틀 크롤링 실행 중 오류:', error);
     }
+    */
 
-    // 통학버스 데이터 크롤링
+    // 통학버스 데이터 크롤링 (임시 비활성화: 공지사항 크롤링 테스트 우선)
+    console.log('[초기화] 통학버스 자동 크롤링은 일시적으로 비활성화했습니다. (공지사항 크롤링 테스트 우선)');
+    /*
     try {
       const campusResult = await campusBusCrawler.crawlAndSave();
       if (campusResult?.success) {
@@ -44,6 +50,7 @@ async function runInitialCrawlers() {
     } catch (error) {
       console.error('초기 통학 크롤링 실행 중 오류:', error);
     }
+    */
 
     // 정류장 좌표 자동 조회 및 저장 (비활성화: 공지사항 크롤링 우선)
     // 환경 변수 ENABLE_STOP_COORDINATE_UPDATE=true로 활성화 가능
