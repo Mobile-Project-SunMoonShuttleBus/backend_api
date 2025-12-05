@@ -313,34 +313,6 @@ exports.reportCongestionNew = async (req, res) => {
     // 통학버스는 도착지가 항상 '아산캠퍼스'이므로 셔틀 정규화 함수 사용
     const normalizedStopId = normalizeShuttleArrival(stopId);
 
-    // startId(출발지)와 stopId(도착지)가 실제로 존재하는지 확인
-    let isValidRoute = false;
-    if (busType === 'shuttle') {
-      // 셔틀버스: ShuttleBus에서 출발지와 도착지 조합 확인
-      const shuttleBus = await ShuttleBus.findOne({ 
-        departure: normalizedStartId,
-        arrival: normalizedStopId
-      });
-      isValidRoute = !!shuttleBus;
-    } else if (busType === 'campus') {
-      // 통학버스: CampusBus에서 출발지와 도착지 조합 확인
-      const campusBus = await CampusBus.findOne({ 
-        departure: normalizedStartId,
-        arrival: normalizedStopId
-      });
-      isValidRoute = !!campusBus;
-    }
-
-    if (!isValidRoute) {
-      return res.status(404).json({
-        success: false,
-        message: '존재하지 않는 노선입니다.',
-        busType: busType,
-        startId: startId,
-        stopId: stopId
-      });
-    }
-
     // weekday 검증 (0-6)
     const weekdayNum = typeof weekday === 'string' ? parseInt(weekday, 10) : weekday;
     if (isNaN(weekdayNum) || weekdayNum < 0 || weekdayNum > 6) {
@@ -372,6 +344,69 @@ exports.reportCongestionNew = async (req, res) => {
     const hour = Math.floor(timeSlotNum / 6);
     const minute = (timeSlotNum % 6) * 10;
     const departureTime = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+
+    // weekday를 dayType으로 변환
+    let dayTypes = [];
+    if (busType === 'shuttle') {
+      if (weekdayNum >= 1 && weekdayNum <= 5) {
+        dayTypes.push('평일');
+      } else if (weekdayNum === 6) {
+        dayTypes.push('토요일/공휴일');
+      } else if (weekdayNum === 0) {
+        dayTypes.push('일요일');
+      }
+    } else if (busType === 'campus') {
+      if (weekdayNum >= 1 && weekdayNum <= 4) {
+        dayTypes.push('월~목');
+      } else if (weekdayNum === 5) {
+        dayTypes.push('금요일');
+      } else if (weekdayNum === 6) {
+        dayTypes.push('토요일/공휴일');
+      } else if (weekdayNum === 0) {
+        dayTypes.push('일요일');
+      }
+    }
+
+    // 실제 운행 스케줄 확인
+    let isValidSchedule = false;
+    if (busType === 'shuttle') {
+      const scheduleFilter = {
+        departure: normalizedStartId,
+        arrival: normalizedStopId,
+        departureTime: departureTime,
+        dayType: { $in: dayTypes }
+      };
+      
+      // 금요일은 fridayOperates가 true인 스케줄만 허용
+      if (weekdayNum === 5) {
+        scheduleFilter.fridayOperates = true;
+      }
+      // 월~목은 모든 평일 스케줄 허용
+      
+      const shuttleSchedule = await ShuttleBus.findOne(scheduleFilter);
+      isValidSchedule = !!shuttleSchedule;
+    } else if (busType === 'campus') {
+      const campusSchedule = await CampusBus.findOne({
+        departure: normalizedStartId,
+        arrival: normalizedStopId,
+        departureTime: departureTime,
+        dayType: { $in: dayTypes }
+      });
+      isValidSchedule = !!campusSchedule;
+    }
+
+    if (!isValidSchedule) {
+      return res.status(404).json({
+        success: false,
+        message: '해당 시간대에 운행하는 스케줄이 없습니다.',
+        busType: busType,
+        startId: startId,
+        stopId: stopId,
+        departureTime: departureTime,
+        weekday: weekdayNum,
+        dayTypes: dayTypes
+      });
+    }
 
     // day_key 계산 (YYYY-MM-DD)
     const now = new Date();
@@ -417,6 +452,23 @@ exports.reportCongestionNew = async (req, res) => {
     });
 
     await crowdReport.save();
+
+    // 리포트 저장 후 즉시 스냅샷 집계
+    const { aggregateAndSaveSnapshot } = require('../services/crowdSnapshotService');
+    setImmediate(async () => {
+      try {
+        await aggregateAndSaveSnapshot(
+          busType,
+          normalizedStartId,
+          normalizedStopId,
+          departureTime,
+          dayKey
+        );
+      } catch (error) {
+        // 집계 실패 시 로그만 남김
+        console.error('혼잡도 스냅샷 집계 오류 (비동기):', error);
+      }
+    });
 
     res.status(201).json({
       success: true,
