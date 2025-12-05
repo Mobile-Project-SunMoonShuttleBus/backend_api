@@ -9,7 +9,6 @@ const NAVER_API_KEY_ID = process.env.NAVER_CLIENT_ID;
 const NAVER_API_KEY = process.env.NAVER_CLIENT_SECRET;
 
 // 경유지별 특정 검색어 맵
-// 각 경유지에 대해 여러 검색어를 시도하여 좌표를 찾음
 const viaStopSearchQueries = {
   '하이렉스파 건너편': [
     '천안 하이렉스파',
@@ -64,11 +63,25 @@ const viaStopSearchQueries = {
     '주은아파트 아산',
     '아산시 주은동 주은아파트',
     '주은아파트 아산시'
+  ],
+  '용암마을': [
+    '용암마을',
+    '천안 용암마을',
+    '충청남도 천안시 용암동',
+    '천안시 용암동',
+    '용암동 천안'
+  ],
+  '죽전': [
+    '죽전',
+    '용인 죽전',
+    '경기도 용인시 죽전동',
+    '용인시 죽전동',
+    '죽전동 용인',
+    '죽전역'
   ]
 };
 
-// 경유지별 수동 좌표 맵 (Geocoding API로 찾지 못한 경우)
-// 실제 좌표는 네이버 지도에서 확인 후 입력
+// 경유지별 수동 좌표 맵
 const manualCoordinates = {
   '하이렉스파 건너편': {
     latitude: 36.8194,
@@ -76,9 +89,9 @@ const manualCoordinates = {
     address: '충청남도 천안시 동남구 원성동'
   },
   '두정동 맥도날드': {
-    latitude: 36.8234,
-    longitude: 127.1289,
-    address: '충청남도 천안시 서북구 두정동'
+    latitude: 36.832976,
+    longitude: 127.1384923,
+    address: '충청남도 천안시 서북구 쌍용대로 400'
   },
   '홈마트 에브리데이': {
     latitude: 36.8201,
@@ -99,10 +112,20 @@ const manualCoordinates = {
     latitude: 36.7823,
     longitude: 127.0123,
     address: '충청남도 아산시 주은동'
+  },
+  '용암마을': {
+    latitude: 36.8200,
+    longitude: 127.1500,
+    address: '충청남도 천안시 동남구 용암동'
+  },
+  '죽전': {
+    latitude: 37.3247,
+    longitude: 127.1083,
+    address: '경기도 용인시 기흥구 죽전동'
   }
 };
 
-// 경유지 좌표 업데이트 (특별 검색어 사용)
+// 경유지 좌표 업데이트
 async function updateViaStopCoordinates(stopNames) {
   try {
     await connectDB();
@@ -128,7 +151,7 @@ async function updateViaStopCoordinates(stopNames) {
       let coordinateResult = null;
       const searchQueries = viaStopSearchQueries[stopName] || [stopName];
       
-      // 1. Geocoding API로 먼저 시도
+      // Geocoding API로 먼저 시도
       for (const query of searchQueries) {
         coordinateResult = await searchStopCoordinates(query);
         if (coordinateResult.success) {
@@ -137,7 +160,7 @@ async function updateViaStopCoordinates(stopNames) {
         await new Promise(resolve => setTimeout(resolve, 300));
       }
       
-      // 2. Geocoding API 실패 시 수동 좌표 사용
+      // Geocoding API 실패 시 수동 좌표 사용
       if (!coordinateResult || !coordinateResult.success) {
         if (manualCoordinates[stopName]) {
           coordinateResult = {

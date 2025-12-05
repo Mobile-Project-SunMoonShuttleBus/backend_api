@@ -5,7 +5,7 @@ const { searchStopCoordinates } = require('./naverMapService');
 const { transformStopName } = require('./stopNameTransformer');
 const { getHardcodedStop } = require('../config/hardcodedStops');
 
-// 크롤러 실행 후 정류장 목록 추출
+// 정류장 목록 추출
 async function extractAllStopNames() {
   const stopNames = new Set();
 
@@ -40,10 +40,9 @@ async function extractAllStopNames() {
   return Array.from(stopNames);
 }
 
-// 정류장 좌표 조회 및 저장 (DB에 없는 정류장만, 또는 강제 재조회)
+// 정류장 좌표 조회 및 저장
 async function updateStopCoordinates(forceUpdateNames = []) {
   try {
-    // 네이버 API 키 확인
     const path = require('path');
     require('dotenv').config({ path: path.join(__dirname, '../../.env') });
     const NAVER_API_KEY_ID = process.env.NAVER_CLIENT_ID;
@@ -56,25 +55,19 @@ async function updateStopCoordinates(forceUpdateNames = []) {
 
     console.log('정류장 좌표 업데이트 시작...');
     
-    // 모든 정류장 이름 추출
     const stopNames = await extractAllStopNames();
-    
     console.log(`총 ${stopNames.length}개 정류장 발견`);
 
-    // DB에 이미 있는 정류장 조회
     const existingStops = await BusStop.find({ name: { $in: stopNames } });
     const existingStopNames = new Set(existingStops.map(stop => stop.name));
 
-    // 강제 재조회할 정류장은 기존 목록에서 제외
     const forceUpdateSet = new Set(forceUpdateNames.map(name => name.trim()));
     if (forceUpdateSet.size > 0) {
       console.log(`강제 재조회 대상: ${Array.from(forceUpdateSet).join(', ')}`);
-      // 강제 재조회 대상은 DB에서 삭제
       await BusStop.deleteMany({ name: { $in: Array.from(forceUpdateSet) } });
       console.log(`강제 재조회 대상 좌표 삭제 완료`);
     }
 
-    // DB에 없는 정류장만 필터링 (강제 재조회 대상 포함)
     const newStopNames = stopNames.filter(name => {
       return !existingStopNames.has(name) || forceUpdateSet.has(name);
     });
@@ -84,27 +77,22 @@ async function updateStopCoordinates(forceUpdateNames = []) {
     let failCount = 0;
     const failedStops = [];
 
-    // 신규 정류장 좌표 조회 및 저장
     for (const stopName of newStopNames) {
       try {
         let result = null;
         let found = false;
         
-        // 네이버 API가 없으면 건너뛰기
         if (!hasNaverApi) {
           console.log(`네이버 API 없음, ${stopName} 건너뜀`);
           continue;
         }
         
-        // 원본 이름으로 먼저 시도
         console.log(`좌표 조회 중: ${stopName}`);
         result = await searchStopCoordinates(stopName);
 
-        // 검색 실패 시 변환된 이름으로 재시도
         if (!result.success) {
           const transformedNames = transformStopName(stopName);
           
-          // 원본 이름은 이미 시도했으므로 제외하고 변환된 이름들로 재시도
           for (const transformedName of transformedNames.slice(1)) {
             console.log(`  → 변환된 이름으로 재시도: ${transformedName}`);
             result = await searchStopCoordinates(transformedName);
@@ -115,7 +103,6 @@ async function updateStopCoordinates(forceUpdateNames = []) {
               break;
             }
             
-            // 네이버 API 호출 제한을 위한 딜레이
             await new Promise(resolve => setTimeout(resolve, 100));
           }
         } else {
@@ -123,12 +110,10 @@ async function updateStopCoordinates(forceUpdateNames = []) {
         }
 
         if (found && result.success) {
-          // 검색 결과의 주소에 정류장 이름이 포함되어 있는지 확인
           const resultAddress = result.address || '';
           const stopNameLower = stopName.toLowerCase().replace(/\s+/g, '');
           const addressLower = resultAddress.toLowerCase().replace(/\s+/g, '');
           
-          // 핵심 키워드 추출
           let isRelevant = false;
           if (stopName.includes('천안 아산역') || stopName.includes('천안아산역')) {
             isRelevant = addressLower.includes('천안아산역') || addressLower.includes('천안아산');
@@ -141,7 +126,6 @@ async function updateStopCoordinates(forceUpdateNames = []) {
           } else if (stopName.includes('캠퍼스') || stopName.includes('선문대')) {
             isRelevant = addressLower.includes('선문대') || addressLower.includes('캠퍼스');
           } else {
-            // 기본적으로 주소에 검색어가 포함되어 있으면 관련성 있다고 판단
             isRelevant = addressLower.includes(stopNameLower) || result.score > 0;
           }
           
@@ -150,7 +134,7 @@ async function updateStopCoordinates(forceUpdateNames = []) {
           }
           
           await BusStop.create({
-            name: stopName, // 원본 이름으로 저장
+            name: stopName,
             latitude: result.latitude,
             longitude: result.longitude,
             naverPlaceId: result.naverPlaceId,
@@ -166,7 +150,6 @@ async function updateStopCoordinates(forceUpdateNames = []) {
           failedStops.push({ name: stopName, error: result.error });
         }
 
-        // 네이버 API 호출 제한을 위한 딜레이 (초당 10회 제한)
         await new Promise(resolve => setTimeout(resolve, 100));
       } catch (error) {
         console.error(`${stopName} 처리 중 오류:`, error.message);
@@ -200,7 +183,7 @@ async function updateStopCoordinates(forceUpdateNames = []) {
   }
 }
 
-// 특정 정류장 좌표 조회 (DB에서)
+// 특정 정류장 좌표 조회
 async function getStopCoordinates(stopName) {
   try {
     const stop = await BusStop.findOne({ name: stopName });
@@ -242,7 +225,6 @@ async function getMultipleStopCoordinates(stopNames) {
       };
     });
 
-    // DB에 없는 정류장은 하드코딩된 좌표 사용
     stopNames.forEach(stopName => {
       if (!coordinatesMap[stopName]) {
         const hardcodedStop = getHardcodedStop(stopName);
