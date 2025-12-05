@@ -1,7 +1,12 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
 const ShuttleBus = require('../models/ShuttleBus');
-// puppeteer는 사용하지 않음 (너무 느림, axios만 사용)
+let puppeteer = null;
+try {
+  puppeteer = require('puppeteer');
+} catch (e) {
+  // puppeteer가 설치되지 않은 경우 무시
+}
 
 // 크롤링할 URL 목록
 const CRAWL_URLS = {
@@ -23,24 +28,71 @@ const CRAWL_URLS = {
   }
 };
 
-// HTML 페이지 로드 (axios만 사용, 빠른 크롤링)
+// JS 실행 후 크롤링
 async function fetchHtml(url) {
-  // axios만 사용 (puppeteer 제거, JavaScript 실행 대기 불필요)
+  // axios 먼저 시도
   try {
+    console.log(`[fetchHtml] axios로 시도: ${url}`);
     const response = await axios.get(url, {
-      timeout: 1000, // 1초 타임아웃
+      timeout: 15000,
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
       }
     });
-    return response.data;
-  } catch (error) {
-    // 타임아웃이면 빈 배열 반환 (에러 로그 제거)
-    if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
-      return null;
+    
+    // JS 실행 여부 확인
+    const html = response.data;
+    const timeMatches = html.match(/\d{1,2}[:;]\d{2}/g);
+    if (timeMatches && timeMatches.length >= 3) {
+      console.log(`[fetchHtml] axios 성공: ${html.length}자 (시간 형식 ${timeMatches.length}개 발견)`);
+      return html;
+    } else {
+      console.log(`[fetchHtml] axios로 가져온 HTML에 시간 형식이 부족 (${timeMatches ? timeMatches.length : 0}개), puppeteer로 재시도`);
     }
-    throw error;
+  } catch (error) {
+    console.warn(`[fetchHtml] axios 실패:`, error.message);
   }
+  
+  // puppeteer로 폴백
+  if (puppeteer !== null && process.env.USE_PUPPETEER !== 'false') {
+    try {
+      const browser = await puppeteer.launch({
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox']
+      });
+      const page = await browser.newPage();
+      
+      await page.goto(url, {
+        waitUntil: 'networkidle2',
+        timeout: 8000
+      });
+      
+      // JS 실행 완료까지 대기
+      await page.waitForFunction(
+        () => {
+          const text = document.body.innerText;
+          const timeMatches = text.match(/\d{1,2}[:;]\d{2}/g);
+          return timeMatches && timeMatches.length >= 3;
+        },
+        { timeout: 2000 }
+      ).catch(() => {});
+      
+      await new Promise(resolve => setTimeout(resolve, 300));
+      
+      const html = await page.evaluate(() => {
+        return document.documentElement.outerHTML;
+      });
+      
+      await browser.close();
+      console.log(`[fetchHtml] Puppeteer 성공: ${html.length}자`);
+      return html;
+    } catch (error) {
+      console.warn(`[fetchHtml] Puppeteer로 HTML 가져오기 실패 (${url}):`, error.message);
+    }
+  }
+  
+  console.error(`[fetchHtml] 모든 방법 실패: ${url}`);
+  return null;
 }
 
 // 출발지 정의
@@ -118,7 +170,16 @@ function normalizeArrival(arrival) {
 
 // 시간표 파싱
 function parseScheduleTable(html, dayType, expectedDeparture) {
+  if (process.env.DEBUG_CRAWLER) {
+    console.log(`[parseScheduleTable] 시작: dayType=${dayType}, expectedDeparture=${expectedDeparture}`);
+  }
   const schedules = [];
+  if (!html) {
+    if (process.env.DEBUG_CRAWLER) {
+      console.log('[parseScheduleTable] HTML이 null입니다');
+    }
+    return schedules;
+  }
   const $ = cheerio.load(html);
   const extractTimeValue = (cellText) => {
     if (!cellText) return null;
@@ -159,7 +220,9 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
     const cleaned = text.replace(/\s+/g, ' ').replace(/\//g, ',').trim();
     if (!cleaned) return [];
     const results = [];
-    const viaRegex = /([가-힣0-9·\s]+?)(?:경유|정차)/g;
+      const viaRegex = /([가-힣0-9·\s]+?)(?:경유|정차)/g;
+      
+      // 탕정역은 제외 (테이블에 컬럼이 없음)
     let match;
     while ((match = viaRegex.exec(cleaned)) !== null) {
       let name = match[1].trim();
@@ -182,24 +245,106 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
         normalizeDeparture(candidate) ||
         candidate;
       if (!normalized) continue;
+      
+      // 탕정역 제외
+      if (normalized === '탕정역' || normalized.includes('탕정역')) {
+        continue;
+      }
+      
       results.push({
         name: normalized,
         time: null,
+        rawText: null,
         source: 'note'
       });
     }
     return results;
   };
 
-  const mergeViaStops = (base, additions) => {
+  // 경유지 시간 추정
+  const estimateViaStopTime = (viaStopName, departureTime, arrivalTime, allViaStops, rawText = '') => {
+    if (!departureTime || !arrivalTime || arrivalTime === 'X') {
+      if (rawText && rawText.trim() && !/^[XΧ]+$/i.test(rawText)) {
+        return rawText.trim();
+      }
+      return null;
+    }
+    
+    // 이미 시간이 있으면 그대로 사용
+    const existingVia = allViaStops.find(v => v.name === viaStopName && v.time);
+    if (existingVia && existingVia.time && !existingVia.time.includes('~')) {
+      return existingVia.time;
+    }
+    
+    // 분으로 변환
+    const [depHour, depMin] = departureTime.split(':').map(Number);
+    const [arrHour, arrMin] = arrivalTime.split(':').map(Number);
+    const depMinutes = depHour * 60 + depMin;
+    const arrMinutes = arrHour * 60 + arrMin;
+    
+    if (arrMinutes <= depMinutes) {
+      if (rawText && rawText.trim() && !/^[XΧ]+$/i.test(rawText)) {
+        return rawText.trim();
+      }
+      return null;
+    }
+    
+    // 중간 지점 기준으로 시간 범위 계산
+    const totalDuration = arrMinutes - depMinutes;
+    const estimatedMinutes = depMinutes + Math.floor(totalDuration * 0.5);
+    
+    // 앞뒤 범위 계산
+    const rangeMinutes = Math.max(1, Math.floor(totalDuration * 0.2));
+    const startMinutes = Math.max(depMinutes, estimatedMinutes - Math.floor(rangeMinutes / 2));
+    const endMinutes = Math.min(arrMinutes, estimatedMinutes + Math.floor(rangeMinutes / 2));
+    
+    const startHour = Math.floor(startMinutes / 60);
+    const startMin = startMinutes % 60;
+    const endHour = Math.floor(endMinutes / 60);
+    const endMin = endMinutes % 60;
+    
+    const timeRange = `${String(startHour).padStart(2, '0')}:${String(startMin).padStart(2, '0')}~${String(endHour).padStart(2, '0')}:${String(endMin).padStart(2, '0')}`;
+    
+    // 텍스트가 있으면 시간 범위와 함께 저장
+    if (rawText && rawText.trim() && !/^[XΧ]+$/i.test(rawText) && !rawText.match(/\d{1,2}:\d{2}/)) {
+      return `${timeRange} (${rawText.trim()})`;
+    }
+    
+    return timeRange;
+  };
+
+  const mergeViaStops = (base, additions, departureTime = null, arrivalTime = null, rawTextMap = {}) => {
     const exists = new Set(base.map((item) => `${item.name}|${item.time || ''}|${item.source || ''}`));
     additions.forEach((item) => {
       if (!item || !item.name) return;
+      
+      // 탕정역은 제외 (테이블에 컬럼이 없음)
+      if (item.name === '탕정역' || item.name.includes('탕정역')) {
+        return;
+      }
+      
       const key = `${item.name}|${item.time || ''}|${item.source || ''}`;
       if (!exists.has(key)) {
+        let viaTime = item.time;
+        
+        // "경유"만 있는 경우
+        if (!viaTime && item.rawText && item.rawText.trim() === '경유') {
+          viaTime = '경유';
+        }
+        // 시간이 없고 출발시간/도착시간이 있으면 추정
+        else if (!viaTime && departureTime && arrivalTime) {
+          const rawText = item.rawText || rawTextMap[item.name] || '';
+          viaTime = estimateViaStopTime(item.name, departureTime, arrivalTime, base, rawText);
+        }
+        // 시간이 없고 텍스트만 있는 경우
+        else if (!viaTime && item.rawText && item.rawText.trim() && !/^[XΧ]+$/i.test(item.rawText)) {
+          viaTime = item.rawText.trim();
+        }
+        
         base.push({
           name: item.name,
-          time: item.time || null,
+          time: viaTime || null,
+          rawText: item.rawText || null,
           source: item.source || 'table'
         });
         exists.add(key);
@@ -208,7 +353,6 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
     return base;
   };
   
-  // 출발, 도착 기본값
   const normalizedDeparture = normalizeDeparture(expectedDeparture);
   
   // 출발지별 기본 도착지 설정
@@ -224,15 +368,13 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
     } else if (pageText.includes('천안터미널') || pageText.includes('천안 터미널') || pageText.includes('터미널')) {
       defaultArrival = '천안 터미널';
     } else {
-      // 도착지를 찾지 못하면 저장 스킵
       defaultArrival = null;
     }
   } else {
-    // 기타 페이지는 기본값 아산캠퍼스
     defaultArrival = '아산캠퍼스';
   }
   
-  // 아산캠퍼스 왕복은 저장하지 않음
+  // 아산캠퍼스 왕복 제외
   if (normalizedDeparture === '아산캠퍼스' && defaultArrival === '아산캠퍼스') {
     return schedules;
   }
@@ -251,7 +393,6 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
       return;
     }
     
-    // 테이블 행 파싱
     const rows = $table.find('tr');
     let headerRowIdx = -1;
     const columnMap = {};
@@ -533,6 +674,10 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
 
       // 온양역/아산터미널 특수 처리
       if (normalizedDeparture === '온양역/아산터미널') {
+        if (process.env.DEBUG_CRAWLER) {
+          console.log('[온양역/아산터미널] 특수 처리 시작');
+          console.log('[온양역/아산터미널] departureColIndices:', Object.keys(departureColIndices));
+        }
         const campusDepartureIdx = departureColIndices['아산캠퍼스'];
         const campusArrivalIdx = columnMap.arrival;
 
@@ -581,9 +726,22 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
 
           // note에서 경유지 추출
           const viaStopsFromNote = extractViaStopsFromText(noteText);
+          
+          // note 경유지에 시간 매핑
+          viaStopsFromNote.forEach(viaStop => {
+            const viaColIdx = departureColIndices[viaStop.name];
+            if (viaColIdx !== undefined && viaColIdx < cells.length) {
+              const viaCell = cells.eq(viaColIdx);
+              const viaTime = extractTimeValue(viaCell.text());
+              if (viaTime) {
+                viaStop.time = viaTime;
+              }
+            }
+          });
+          
           let arrivalTime = campusArrivalIdx !== undefined && campusArrivalIdx < cells.length
-            ? extractTimeValue($(cells[campusArrivalIdx]).text())
-            : null;
+            ? (extractTimeValue($(cells[campusArrivalIdx]).text()) || 'X')
+            : 'X';
 
           // 정류장 -> 아산캠
           for (const { idx, name } of validStopColumns) {
@@ -605,14 +763,29 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
               const otherTimeText = otherCell.text().trim();
               const otherTime = extractTimeValue(otherTimeText);
               if (otherTime) {
-                // 출발 시간보다 늦으면 경유지
+                // 출발~도착 시간 사이면 경유지
                 const depTime = departureTime.split(':').map(Number);
+                const depMinutes = depTime[0] * 60 + depTime[1];
                 const othTime = otherTime.split(':').map(Number);
-                if (othTime[0] * 60 + othTime[1] > depTime[0] * 60 + depTime[1]) {
+                const othMinutes = othTime[0] * 60 + othTime[1];
+                
+                // 도착시간 확인
+                let arrMinutes = null;
+                if (arrivalTime && arrivalTime !== 'X') {
+                  const arrTime = arrivalTime.split(':').map(Number);
+                  arrMinutes = arrTime[0] * 60 + arrTime[1];
+                }
+                
+                // 출발 시간보다 늦고, 도착 시간이 있으면 도착 시간보다 빠른지 확인
+                if (othMinutes > depMinutes && (!arrMinutes || othMinutes < arrMinutes)) {
                   // 경유지 이름도 정규화
                   let normalizedViaName = otherName;
                   if (otherName === '온양온천역' || otherName === '아산터미널') {
                     normalizedViaName = '온양역/아산터미널';
+                  }
+                  // 도착 컬럼은 경유지에서 제외
+                  if (normalizedViaName.includes('_도착')) {
+                    return;
                   }
                   viaStopsForRoute.push({
                     name: normalizedViaName,
@@ -621,24 +794,24 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
                   });
                 }
               } else if (otherTimeText && (otherTimeText.includes('경유') || !/^[XΧ]+$/i.test(otherTimeText))) {
-                // 시간이 없어도 "경유" 텍스트가 있거나 빈 셀이 아니면 경유지로 추가
+                // 경유 텍스트가 있으면 경유지로 추가
                 let normalizedViaName = otherName;
                 if (otherName === '온양온천역' || otherName === '아산터미널') {
                   normalizedViaName = '온양역/아산터미널';
                 }
+                // 도착 컬럼은 경유지에서 제외
+                if (normalizedViaName.includes('_도착')) {
+                  continue;
+                }
                 viaStopsForRoute.push({
                   name: normalizedViaName,
                   time: null,
+                  rawText: otherTimeText,
                   source: 'table'
                 });
               }
             }
-            mergeViaStops(viaStopsForRoute, viaStopsFromNote);
-
-            // 도착 시간 찾기:
-            // 1. columnMap.arrival이 있으면 사용
-            // 2. "아산캠퍼스_도착" 컬럼 확인 (정류장 → 아산캠퍼스이므로 아산캠퍼스 도착 컬럼 사용)
-            // 주의: 아산캠퍼스 출발 컬럼은 사용하지 않음 (그건 아산캠퍼스 → 정류장 방향의 출발 시간)
+            // 도착시간 먼저 찾기
             let finalArrivalTime = arrivalTime;
             if (!finalArrivalTime && departureColIndices['아산캠퍼스_도착'] !== undefined) {
               const arrivalColIdx = departureColIndices['아산캠퍼스_도착'];
@@ -706,7 +879,7 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
                       });
                     }
                   } else if (otherTimeText && (otherTimeText.includes('경유') || !/^[XΧ]+$/i.test(otherTimeText))) {
-                    // 시간이 없어도 "경유" 텍스트가 있거나 빈 셀이 아니면 경유지로 추가
+                    // 경유 텍스트가 있으면 경유지로 추가
                     let normalizedViaName = otherName;
                     if (otherName === '온양온천역' || otherName === '아산터미널') {
                       normalizedViaName = '온양역/아산터미널';
@@ -714,11 +887,12 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
                     viaStopsForRoute.push({
                       name: normalizedViaName,
                       time: null,
+                      rawText: otherTimeText,
                       source: 'table'
                     });
                   }
                 }
-                mergeViaStops(viaStopsForRoute, viaStopsFromNote);
+                mergeViaStops(viaStopsForRoute, viaStopsFromNote, campusDepartureTime, stopTime || 'X');
 
                 // 도착시간이 없으면 X로 저장
                 schedules.push({
@@ -755,6 +929,7 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
       const arrivalColIdx = columnMap.arrival;
       const intermediateEntries = Object.entries(departureColIndices).filter(([stopName, idx]) => {
         if (stopName === '천안 아산역' || stopName === '아산캠퍼스') return false;
+        if (isArrivalColumn(stopName)) return false; // 도착 컬럼 제외
         return idx !== undefined;
       });
 
@@ -795,12 +970,14 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
 
         const arrivalTime =
           arrivalColIdx !== undefined && arrivalColIdx < cells.length
-            ? extractTimeValue($(cells[arrivalColIdx]).text())
-            : null;
+            ? (extractTimeValue($(cells[arrivalColIdx]).text()) || 'X')
+            : 'X';
 
         const viaStopsFromColumns = [];
         for (const [stopName, idx] of intermediateEntries) {
           if (idx === undefined || idx >= cells.length) continue;
+          // 도착 컬럼 제외
+          if (stopName.includes('_도착')) continue;
           const cell = cells.eq(idx);
           const rawValue = cell.text().trim();
           const timeValue = extractTimeValue(rawValue);
@@ -811,34 +988,55 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
               source: 'table'
             });
           } else if (rawValue && !/^[XΧ]+$/i.test(rawValue)) {
-            // 시간이 없어도 텍스트가 있으면 경유지로 추가 (예: "5분~10분 소요예상", "하이렉스파 건너편" 등)
+            // "경유"라고만 표시된 경우나 "5분~10분 소요예상" 같은 텍스트만 있는 경우
+            // 출발시간과 도착시간 사이의 시간 범위를 추정 (나중에 mergeViaStops에서 처리)
             viaStopsFromColumns.push({
               name: stopName,
               time: null,
+              rawText: rawValue,
+              source: 'table'
+            });
+          } else if (!rawValue || /^[XΧ]+$/i.test(rawValue)) {
+            // 빈 값이거나 X만 있는 경우에도 경유지로 추가 (시간 추정 필요)
+            // intermediateEntries에 포함되어 있다는 것은 해당 정류장이 경유지임을 의미
+            // 단, 실제로 "경유"라고 써져있지 않으면 rawText를 null로 설정
+            viaStopsFromColumns.push({
+              name: stopName,
+              time: null,
+              rawText: null,
               source: 'table'
             });
           } else {
             const viaFromCell = extractViaStopsFromText(rawValue);
+            // viaFromCell은 출발시간/도착시간 정보가 없으므로 시간 추정 불가
             mergeViaStops(viaStopsFromColumns, viaFromCell);
           }
         }
 
         const viaStopsFromNote = extractViaStopsFromText(noteText);
+        
+        // note에서 추출한 경유지에 시간 매핑 (테이블 컬럼에서 찾기)
+        viaStopsFromNote.forEach(viaStop => {
+          const viaColIdx = departureColIndices[viaStop.name];
+          if (viaColIdx !== undefined && viaColIdx < cells.length) {
+            const viaCell = cells.eq(viaColIdx);
+            const viaTime = extractTimeValue(viaCell.text());
+            if (viaTime) {
+              viaStop.time = viaTime;
+            }
+          }
+        });
 
         // 아산캠퍼스 출발 컬럼 확인 (컬럼 1: "아산캠퍼스     출발")
-        // 주의: "아산캠퍼스" 컬럼은 "출발" 키워드가 있는 컬럼만 사용 (도착 컬럼 제외)
+        // 아산캠퍼스 컬럼은 출발 컬럼만 사용
         const campusDepartureColIdx = departureColIndices['아산캠퍼스'];
         if (campusDepartureColIdx !== undefined && campusDepartureColIdx < cells.length) {
           const campusCell = cells.eq(campusDepartureColIdx);
           const campusTime = extractTimeValue(campusCell.text());
           if (campusTime) {
             const campusViaStops = [];
-            mergeViaStops(campusViaStops, viaStopsFromNote);
             
-            // 도착 시간 찾기: 
-            // 아산캠퍼스 → 천안 아산역 방향: 천안 아산역 출발 컬럼의 시간이 도착 시간
-            // 예: 아산캠퍼스 출발 8:10, 천안아산역 출발 8:25 → 도착시간은 8:25
-            // 주의: arrivalTime은 columnMap.arrival에서 가져온 것인데, 이건 "아산캠퍼스 도착" 컬럼일 수 있으므로 사용하지 않음
+            // 도착시간 먼저 찾기
             let finalArrivalTime = null;
             // stationColIdx가 정의되어 있으면 우선 사용 (천안 아산역 특수 처리에서)
             if (stationColIdx !== undefined && stationColIdx < cells.length) {
@@ -871,6 +1069,10 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
             }
             // 천안 아산역_도착 컬럼은 사용하지 않음 (그건 역방향용)
             
+            // 경유지 시간 추정
+            mergeViaStops(campusViaStops, viaStopsFromNote, campusTime, finalArrivalTime || 'X');
+            mergeViaStops(campusViaStops, viaStopsFromColumns, campusTime, finalArrivalTime || 'X');
+            
             // 도착시간이 없으면 X로 저장
             schedules.push({
               departure: '아산캠퍼스',
@@ -898,8 +1100,8 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
             const campusArrivalTime = extractTimeValue(campusArrivalCell.text());
             if (campusArrivalTime) {
               const stationViaStops = [];
-              mergeViaStops(stationViaStops, viaStopsFromColumns);
-              mergeViaStops(stationViaStops, viaStopsFromNote);
+              mergeViaStops(stationViaStops, viaStopsFromColumns, stationTime, campusArrivalTime);
+              mergeViaStops(stationViaStops, viaStopsFromNote, stationTime, campusArrivalTime);
               
               // 천안 아산역 → 아산캠퍼스: 출발은 천안 아산역 출발 컬럼, 도착은 아산캠퍼스 도착 컬럼
               schedules.push({
@@ -922,10 +1124,6 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
           const stationCell = cells.eq(stationColIdx);
           const stationTime = extractTimeValue(stationCell.text());
           if (stationTime) {
-            const stationViaStops = [];
-            mergeViaStops(stationViaStops, viaStopsFromColumns);
-            mergeViaStops(stationViaStops, viaStopsFromNote);
-            
             // 도착 시간 찾기:
             // 1. columnMap.arrival이 있으면 사용
             // 2. 없으면 campusColIdx(아산캠퍼스 출발 컬럼)의 시간 사용
@@ -943,12 +1141,18 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
               }
             }
             
+            const campusArrivalTime = finalArrivalTime || 'X';
+            const stationViaStops = [];
+            // viaStopsFromColumns와 viaStopsFromNote는 이미 위에서 정의됨 (for 루프 내부)
+            mergeViaStops(stationViaStops, viaStopsFromColumns, stationTime, campusArrivalTime);
+            mergeViaStops(stationViaStops, viaStopsFromNote, stationTime, campusArrivalTime);
+            
             // 도착시간이 없으면 X로 저장
             schedules.push({
               departure: '천안 아산역',
               arrival: '아산캠퍼스',
               departureTime: stationTime,
-              arrivalTime: finalArrivalTime || 'X',
+              arrivalTime: campusArrivalTime,
               fridayOperates,
               dayType,
               note: noteText || '',
@@ -1016,17 +1220,18 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
 
         const arrivalTime =
           arrivalColIdx !== undefined && arrivalColIdx < cells.length
-            ? extractTimeValue($(cells[arrivalColIdx]).text())
-            : null;
+            ? (extractTimeValue($(cells[arrivalColIdx]).text()) || 'X')
+            : 'X';
 
         const viaStopsFromColumns = [];
-        // 천안역 페이지 특수 처리: "용암마을" 컬럼은 경유지가 아닌 아산캠퍼스 도착시간으로 사용
-        // 천안역 → 아산캠퍼스 방향에서는 "용암마을" 컬럼의 시간이 실제 도착시간이므로 경유지에서 제외
+        // 천안역 페이지 특수 처리: 용암마을 컬럼은 도착시간으로 사용
         const excludedStops = normalizedDeparture === '천안역' ? ['용암마을'] : [];
         for (const [stopName, idx] of intermediateEntries) {
           if (idx === undefined || idx >= cells.length) continue;
-          // 천안역 → 아산캠퍼스 방향에서는 "용암마을" 제외 (도착시간으로 사용)
+          // 용암마을 제외
           if (excludedStops.includes(stopName)) continue;
+          // 도착 컬럼 제외
+          if (stopName.includes('_도착')) continue;
           const cell = cells.eq(idx);
           const rawValue = cell.text().trim();
           const timeValue = extractTimeValue(rawValue);
@@ -1037,31 +1242,73 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
               source: 'table'
             });
           } else if (rawValue && !/^[XΧ]+$/i.test(rawValue)) {
-            // 시간이 없어도 텍스트가 있으면 경유지로 추가 (예: "5분~10분 소요예상", "하이렉스파 건너편" 등)
+            // "경유"라고만 표시된 경우나 "5분~10분 소요예상" 같은 텍스트만 있는 경우
+            // 출발시간과 도착시간 사이의 시간 범위를 추정 (나중에 mergeViaStops에서 처리)
             viaStopsFromColumns.push({
               name: stopName,
               time: null,
+              rawText: rawValue,
+              source: 'table'
+            });
+          } else if (!rawValue || /^[XΧ]+$/i.test(rawValue)) {
+            // 빈 값이거나 X만 있는 경우에도 경유지로 추가 (시간 추정 필요)
+            // intermediateEntries에 포함되어 있다는 것은 해당 정류장이 경유지임을 의미
+            // 단, 실제로 "경유"라고 써져있지 않으면 rawText를 null로 설정
+            viaStopsFromColumns.push({
+              name: stopName,
+              time: null,
+              rawText: null,
               source: 'table'
             });
           } else {
             const viaFromCell = extractViaStopsFromText(rawValue);
+            // viaFromCell은 출발시간/도착시간 정보가 없으므로 시간 추정 불가
             mergeViaStops(viaStopsFromColumns, viaFromCell);
           }
         }
 
         const viaStopsFromNote = extractViaStopsFromText(noteText);
+        
+        // note에서 추출한 경유지에 시간 매핑 (테이블 컬럼에서 찾기)
+        viaStopsFromNote.forEach(viaStop => {
+          const viaColIdx = departureColIndices[viaStop.name];
+          if (viaColIdx !== undefined && viaColIdx < cells.length) {
+            const viaCell = cells.eq(viaColIdx);
+            const viaTime = extractTimeValue(viaCell.text());
+            if (viaTime) {
+              viaStop.time = viaTime;
+            }
+          }
+        });
 
         if (asanColIdx !== undefined && asanColIdx < cells.length) {
           const asanCell = cells.eq(asanColIdx);
           const asanTime = extractTimeValue(asanCell.text());
           if (asanTime) {
             const campusViaStops = [];
-            mergeViaStops(campusViaStops, viaStopsFromNote);
-            
-            // 도착 시간 찾기 (아산캠퍼스 → 천안역):
-            // 천안역 페이지에서 아산캠퍼스 → 천안역 방향은 천안역 출발 컬럼의 시간이 도착 시간
-            // 예: 아산캠퍼스 7:30 출발 → 천안역 8:10 도착 (천안역 출발 컬럼의 8:10)
+            // 도착시간 먼저 찾기
             let finalArrivalTime = arrivalTime;
+            if (!finalArrivalTime && cheonanColIdx !== undefined && cheonanColIdx < cells.length) {
+              const cheonanCell = cells.eq(cheonanColIdx);
+              const cheonanTime = extractTimeValue(cheonanCell.text());
+              if (cheonanTime) {
+                const depMinutes = parseInt(asanTime.split(':')[0]) * 60 + parseInt(asanTime.split(':')[1]);
+                const arrMinutes = parseInt(cheonanTime.split(':')[0]) * 60 + parseInt(cheonanTime.split(':')[1]);
+                if (arrMinutes > depMinutes) {
+                  finalArrivalTime = cheonanTime;
+                }
+              }
+            }
+            if (finalArrivalTime === 'X' && departureColIndices['천안역_도착'] !== undefined) {
+              const arrivalColIdx = departureColIndices['천안역_도착'];
+              if (arrivalColIdx < cells.length) {
+                const arrivalCell = cells.eq(arrivalColIdx);
+                finalArrivalTime = extractTimeValue(arrivalCell.text());
+              }
+            }
+            
+            mergeViaStops(campusViaStops, viaStopsFromNote, asanTime, finalArrivalTime || 'X');
+            mergeViaStops(campusViaStops, viaStopsFromColumns, asanTime, finalArrivalTime || 'X');
             if (!finalArrivalTime && cheonanColIdx !== undefined && cheonanColIdx < cells.length) {
               const cheonanCell = cells.eq(cheonanColIdx);
               const cheonanTime = extractTimeValue(cheonanCell.text());
@@ -1074,7 +1321,7 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
                 }
               }
             }
-            if (!finalArrivalTime && departureColIndices['천안역_도착'] !== undefined) {
+            if (finalArrivalTime === 'X' && departureColIndices['천안역_도착'] !== undefined) {
               const arrivalColIdx = departureColIndices['천안역_도착'];
               if (arrivalColIdx < cells.length) {
                 const arrivalCell = cells.eq(arrivalColIdx);
@@ -1102,15 +1349,14 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
           const cheonanCell = cells.eq(cheonanColIdx);
           const cheonanTime = extractTimeValue(cheonanCell.text());
           if (cheonanTime) {
-            const cheonanViaStops = [];
-            mergeViaStops(cheonanViaStops, viaStopsFromColumns);
-            mergeViaStops(cheonanViaStops, viaStopsFromNote);
-            
             // 도착 시간 찾기 (천안역 → 아산캠퍼스)
-            // 천안역 페이지 HTML 구조상 실제 도착시간은 "용암마을" 컬럼(컬럼 4)에 저장됨
-            // columnMap.arrival(컬럼 5)에는 특이사항만 있음
+            // 용암마을 컬럼이 실제 도착시간
             let finalArrivalTime = null;
-            // 1. "용암마을" 컬럼 직접 확인 (intermediateEntries에서 제외되었으므로 departureColIndices에서 직접 찾기)
+            
+            const cheonanViaStops = [];
+            mergeViaStops(cheonanViaStops, viaStopsFromColumns, cheonanTime, finalArrivalTime || 'X');
+            mergeViaStops(cheonanViaStops, viaStopsFromNote, cheonanTime, finalArrivalTime || 'X');
+            // 용암마을 컬럼 확인
             if (departureColIndices['용암마을'] !== undefined) {
               const yongamIdx = departureColIndices['용암마을'];
               if (yongamIdx < cells.length) {
@@ -1201,16 +1447,15 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
 
         const arrivalTime =
           arrivalColIdx !== undefined && arrivalColIdx < cells.length
-            ? extractTimeValue($(cells[arrivalColIdx]).text())
-            : null;
+            ? (extractTimeValue($(cells[arrivalColIdx]).text()) || 'X')
+            : 'X';
 
         const viaStopsFromColumns = [];
-        // 천안 터미널 페이지 특수 처리: "홈마트 에브리데이" 컬럼은 경유지가 아닌 아산캠퍼스 도착시간으로 사용
-        // 천안 터미널 → 아산캠퍼스 방향에서는 "홈마트 에브리데이" 컬럼의 시간이 실제 도착시간이므로 경유지에서 제외
+        // 천안 터미널 페이지 특수 처리: 홈마트 에브리데이 컬럼은 도착시간으로 사용
         const excludedStops = normalizedDeparture === '천안 터미널' ? ['홈마트 에브리데이'] : [];
         for (const [stopName, idx] of intermediateEntries) {
           if (idx === undefined || idx >= cells.length) continue;
-          // 천안 터미널 → 아산캠퍼스 방향에서는 "홈마트 에브리데이" 제외 (도착시간으로 사용)
+          // 홈마트 에브리데이 제외
           if (excludedStops.includes(stopName)) continue;
           const cell = cells.eq(idx);
           const rawValue = cell.text().trim();
@@ -1222,30 +1467,51 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
               source: 'table'
             });
           } else if (rawValue && !/^[XΧ]+$/i.test(rawValue)) {
-            // 시간이 없어도 텍스트가 있으면 경유지로 추가 (예: "5분~10분 소요예상", "하이렉스파 건너편" 등)
+            // "경유"라고만 표시된 경우나 "5분~10분 소요예상" 같은 텍스트만 있는 경우
+            // 출발시간과 도착시간 사이의 시간 범위를 추정 (나중에 mergeViaStops에서 처리)
             viaStopsFromColumns.push({
               name: stopName,
               time: null,
+              rawText: rawValue,
+              source: 'table'
+            });
+          } else if (!rawValue || /^[XΧ]+$/i.test(rawValue)) {
+            // 빈 값이거나 X만 있는 경우에도 경유지로 추가 (시간 추정 필요)
+            // intermediateEntries에 포함되어 있다는 것은 해당 정류장이 경유지임을 의미
+            // 단, 실제로 "경유"라고 써져있지 않으면 rawText를 null로 설정
+            viaStopsFromColumns.push({
+              name: stopName,
+              time: null,
+              rawText: null,
               source: 'table'
             });
           } else {
             const viaFromCell = extractViaStopsFromText(rawValue);
+            // viaFromCell은 출발시간/도착시간 정보가 없으므로 시간 추정 불가
             mergeViaStops(viaStopsFromColumns, viaFromCell);
           }
         }
 
         const viaStopsFromNote = extractViaStopsFromText(noteText);
+        
+        // note에서 추출한 경유지에 시간 매핑 (테이블 컬럼에서 찾기)
+        viaStopsFromNote.forEach(viaStop => {
+          const viaColIdx = departureColIndices[viaStop.name];
+          if (viaColIdx !== undefined && viaColIdx < cells.length) {
+            const viaCell = cells.eq(viaColIdx);
+            const viaTime = extractTimeValue(viaCell.text());
+            if (viaTime) {
+              viaStop.time = viaTime;
+            }
+          }
+        });
 
           if (asanColIdx !== undefined && asanColIdx < cells.length) {
           const asanCell = cells.eq(asanColIdx);
           const asanTime = extractTimeValue(asanCell.text());
             if (asanTime) {
             const campusViaStops = [];
-            mergeViaStops(campusViaStops, viaStopsFromNote);
-            
-            // 도착 시간 찾기:
-            // 아산캠퍼스 → 천안 터미널 방향: 천안 터미널 출발 컬럼의 시간이 도착 시간
-            // 예: 아산캠퍼스 7:30 출발 → 천안 터미널 8:10 도착 (터미널 출발 컬럼의 8:10)
+            // 도착시간 먼저 찾기
             let finalArrivalTime = arrivalTime;
             if (!finalArrivalTime && terminalColIdx !== undefined && terminalColIdx < cells.length) {
               const terminalCell = cells.eq(terminalColIdx);
@@ -1267,19 +1533,23 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
               }
             }
             
-              // 도착시간이 없으면 X로 저장
-              schedules.push({
-                departure: '아산캠퍼스',
-                arrival: '천안 터미널',
-                departureTime: asanTime,
-                arrivalTime: finalArrivalTime || 'X',
-                fridayOperates,
-                dayType,
-                note: noteText || '',
-                viaStops: campusViaStops,
-                studentHallBoardingAvailable: hasHighlight(asanCell),
-                sourceUrl: CRAWL_URLS[dayType]?.[expectedDeparture] || ''
-              });
+            // 경유지 시간 추정
+            mergeViaStops(campusViaStops, viaStopsFromNote, asanTime, finalArrivalTime || 'X');
+            mergeViaStops(campusViaStops, viaStopsFromColumns, asanTime, finalArrivalTime || 'X');
+            
+            // 도착시간이 없으면 X로 저장
+            schedules.push({
+              departure: '아산캠퍼스',
+              arrival: '천안 터미널',
+              departureTime: asanTime,
+              arrivalTime: finalArrivalTime || 'X',
+              fridayOperates,
+              dayType,
+              note: noteText || '',
+              viaStops: campusViaStops,
+              studentHallBoardingAvailable: hasHighlight(asanCell),
+              sourceUrl: CRAWL_URLS[dayType]?.[expectedDeparture] || ''
+            });
             }
           }
 
@@ -1287,15 +1557,14 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
           const terminalCell = cells.eq(terminalColIdx);
           const terminalTime = extractTimeValue(terminalCell.text());
             if (terminalTime) {
-            const terminalViaStops = [];
-            mergeViaStops(terminalViaStops, viaStopsFromColumns);
-            mergeViaStops(terminalViaStops, viaStopsFromNote);
-            
             // 도착 시간 찾기 (천안 터미널 → 아산캠퍼스)
-            // 천안 터미널 페이지 HTML 구조상 실제 도착시간은 "홈마트 에브리데이" 컬럼(컬럼 4)에 저장됨
-            // columnMap.arrival(컬럼 6)은 데이터 행에 없음
+            // 홈마트 에브리데이 컬럼이 실제 도착시간
             let finalArrivalTime = null;
-            // 1. "홈마트 에브리데이" 컬럼 직접 확인 (intermediateEntries에서 제외되었으므로 departureColIndices에서 직접 찾기)
+            
+            const terminalViaStops = [];
+            mergeViaStops(terminalViaStops, viaStopsFromColumns, terminalTime, finalArrivalTime || 'X');
+            mergeViaStops(terminalViaStops, viaStopsFromNote, terminalTime, finalArrivalTime || 'X');
+            // 홈마트 에브리데이 컬럼 확인
             if (departureColIndices['홈마트 에브리데이'] !== undefined) {
               const homeMartIdx = departureColIndices['홈마트 에브리데이'];
               if (homeMartIdx < cells.length) {
@@ -1320,21 +1589,25 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
               finalArrivalTime = extractTimeValue(arrivalCell.text());
             }
             
-              // 도착시간이 없으면 X로 저장
-              schedules.push({
-                departure: '천안 터미널',
-                arrival: '아산캠퍼스',
-                departureTime: terminalTime,
-                arrivalTime: finalArrivalTime || 'X',
-                fridayOperates,
-                dayType,
-                note: noteText || '',
-                viaStops: terminalViaStops,
-                studentHallBoardingAvailable: hasHighlight(terminalCell),
-                sourceUrl: CRAWL_URLS[dayType]?.[expectedDeparture] || ''
-              });
-            }
+            // 경유지 시간 추정
+            mergeViaStops(terminalViaStops, viaStopsFromColumns, terminalTime, finalArrivalTime || 'X');
+            mergeViaStops(terminalViaStops, viaStopsFromNote, terminalTime, finalArrivalTime || 'X');
+            
+            // 도착시간이 없으면 X로 저장
+            schedules.push({
+              departure: '천안 터미널',
+              arrival: '아산캠퍼스',
+              departureTime: terminalTime,
+              arrivalTime: finalArrivalTime || 'X',
+              fridayOperates,
+              dayType,
+              note: noteText || '',
+              viaStops: terminalViaStops,
+              studentHallBoardingAvailable: hasHighlight(terminalCell),
+              sourceUrl: CRAWL_URLS[dayType]?.[expectedDeparture] || ''
+            });
           }
+        }
         }
 
         return;
@@ -1602,13 +1875,15 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
   return schedules;
 }
 
-// 단일 URL 시간표 크롤링 (타임아웃 적용)
+// 단일 URL 크롤링
 async function crawlSingleUrl(dayType, departure, url) {
   const startTime = Date.now();
-  const MAX_TIME = 1500; // 최대 1.5초
+  const MAX_TIME = 20000;
   
   try {
-    // 1.5초 타임아웃으로 HTML 가져오기
+    console.log(`[crawlSingleUrl] 시작: ${dayType} - ${departure} - ${url}`);
+    
+    // HTML 가져오기
     const html = await Promise.race([
       fetchHtml(url),
       new Promise((_, reject) => 
@@ -1617,25 +1892,35 @@ async function crawlSingleUrl(dayType, departure, url) {
     ]);
     
     if (!html) {
+      console.log(`[crawlSingleUrl] HTML이 null입니다: ${departure}`);
       return [];
     }
     
+    console.log(`[crawlSingleUrl] HTML 가져오기 완료: ${html.length}자`);
+    
     // 타임아웃 체크
     if (Date.now() - startTime > MAX_TIME) {
+      console.log(`[crawlSingleUrl] 타임아웃: ${departure}`);
       return [];
     }
     
     const schedules = parseScheduleTable(html, dayType, departure);
     
+    console.log(`[crawlSingleUrl] 파싱 완료: ${schedules.length}개 시간표`);
+    
     return schedules;
   } catch (error) {
+    console.error(`[crawlSingleUrl] 에러: ${error.message}`);
+    if (error.stack) {
+      console.error(error.stack);
+    }
     // 타임아웃이면 빈 배열 반환
     return [];
   }
 }
 
 // 모든 시간표 크롤링 (병렬 처리로 빠른 크롤링, 강제 타임아웃)
-async function crawlAllSchedules(maxTime = 10000) {
+async function crawlAllSchedules(maxTime = 90000) {
   console.log('=== 셔틀버스 시간표 전체 크롤링 시작 ===');
   console.log(`[DEBUG] crawlAllSchedules 호출됨, maxTime: ${maxTime}ms`);
   
@@ -1667,7 +1952,7 @@ async function crawlAllSchedules(maxTime = 10000) {
   
   try {
     for (let i = 0; i < allUrls.length; i += CONCURRENT_LIMIT) {
-      // 타임아웃 체크 (매 배치 시작 전)
+      // 타임아웃 체크
       const elapsed = Date.now() - startTime;
       if (elapsed > maxTime) {
         console.warn(`\n⚠️ 크롤링 타임아웃 (${(elapsed/1000).toFixed(1)}초 경과, ${completedCount}/${totalPages} 페이지 완료), 즉시 중단합니다.`);
@@ -1679,7 +1964,7 @@ async function crawlAllSchedules(maxTime = 10000) {
       const batchNum = Math.floor(i/CONCURRENT_LIMIT) + 1;
       console.log(`배치 ${batchNum} 시작: ${batch.map(b => b.departure).join(', ')}`);
       
-      // 배치에 타임아웃 적용
+      // 배치 타임아웃
       const batchStartTime = Date.now();
       const remainingTime = maxTime - (batchStartTime - startTime);
       
@@ -1689,13 +1974,13 @@ async function crawlAllSchedules(maxTime = 10000) {
         throw new Error(`크롤링 타임아웃: 남은 시간 없음`);
       }
       
-      // 병렬로 크롤링 실행 (각 URL 최대 2초)
+      // 병렬 크롤링
       const batchPromises = batch.map(async ({ dayType, departure, url }) => {
         try {
           const schedules = await Promise.race([
             crawlSingleUrl(dayType, departure, url),
             new Promise((_, reject) => 
-              setTimeout(() => reject(new Error('URL 타임아웃')), 2000)
+              setTimeout(() => reject(new Error('URL 타임아웃')), 20000)
             ),
             forceTimeout
           ]);
@@ -1709,11 +1994,11 @@ async function crawlAllSchedules(maxTime = 10000) {
         }
       });
       
-      // 배치 완료 대기 (배치 타임아웃 적용)
+      // 배치 완료 대기
       const batchResults = await Promise.race([
         Promise.all(batchPromises),
         new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('배치 타임아웃')), Math.min(remainingTime, 3000))
+          setTimeout(() => reject(new Error('배치 타임아웃')), Math.min(remainingTime, 30000))
         ),
         forceTimeout
       ]);
@@ -1722,7 +2007,7 @@ async function crawlAllSchedules(maxTime = 10000) {
         allSchedules.push(...schedules);
       });
       
-      // 타임아웃 체크 (배치 완료 후)
+      // 타임아웃 체크
       const elapsedAfterBatch = Date.now() - startTime;
       if (elapsedAfterBatch > maxTime) {
         console.warn(`\n⚠️ 크롤링 타임아웃 (${(elapsedAfterBatch/1000).toFixed(1)}초 경과), 즉시 중단합니다.`);
@@ -1730,7 +2015,7 @@ async function crawlAllSchedules(maxTime = 10000) {
       }
     }
   } catch (error) {
-    // 타임아웃이면 즉시 중단
+    // 타임아웃이면 중단
     if (error.message.includes('타임아웃')) {
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
       console.warn(`\n⚠️ 크롤링 중단 (${elapsed}초 경과, ${completedCount}/${totalPages} 페이지 완료)`);
@@ -1746,7 +2031,7 @@ async function crawlAllSchedules(maxTime = 10000) {
 }
 
 // DB 시간표 저장 (타임아웃 적용)
-async function saveSchedulesToDB(schedules, maxTime = 10000) {
+async function saveSchedulesToDB(schedules, maxTime = 30000) {
   console.log(`\nDB 저장 시작: ${schedules.length}개 시간표...`);
   
   const startTime = Date.now();
@@ -1763,7 +2048,7 @@ async function saveSchedulesToDB(schedules, maxTime = 10000) {
     }, maxTime);
   });
   
-  // 배치로 저장 (한 번에 여러 개)
+  // 배치 저장
   const BATCH_SIZE = 100; // 배치 크기 증가로 속도 향상
   try {
     for (let i = 0; i < schedules.length; i += BATCH_SIZE) {
@@ -1951,10 +2236,10 @@ async function saveRoutePaths(schedules) {
 }
 
 async function crawlAndSaveAll() {
-  const TOTAL_TIMEOUT = 20000; // 전체 최대 20초
+  const TOTAL_TIMEOUT = 100000; // 전체 최대 100초
   const startTime = Date.now();
   
-  // 강제 타임아웃: 절대 20초를 넘지 않도록
+  // 강제 타임아웃: 절대 100초를 넘지 않도록
   const forceTimeout = new Promise((_, reject) => {
     setTimeout(() => {
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
@@ -1963,15 +2248,15 @@ async function crawlAndSaveAll() {
   });
   
   try {
-    // 크롤링에 타임아웃 적용 (최대 12초)
-    const CRAWL_TIMEOUT = 12000;
+    // 크롤링에 타임아웃 적용 (최대 90초)
+    const CRAWL_TIMEOUT = 90000;
     const crawlStart = Date.now();
     console.log(`[타임 측정] 크롤링 시작 (최대 ${CRAWL_TIMEOUT/1000}초)...`);
     
     const schedules = await Promise.race([
       crawlAllSchedules(CRAWL_TIMEOUT),
       new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('크롤링 타임아웃 (12초 초과)')), CRAWL_TIMEOUT)
+        setTimeout(() => reject(new Error('크롤링 타임아웃 (90초 초과)')), CRAWL_TIMEOUT)
       ),
       forceTimeout
     ]);

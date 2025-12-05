@@ -23,6 +23,40 @@ const SHUTTLE_DAY_TYPE_GROUPS = [
   }
 ];
 
+// 정류장 이름 정규화 함수 (크롤러와 동일한 로직)
+const normalizeStopName = (name) => {
+  if (!name) return name;
+  const normalized = name.trim();
+  
+  // 온양역/아산터미널 관련 정규화
+  if (normalized.includes('온양온천역') || normalized.includes('온양온천')) {
+    return '온양역/아산터미널';
+  }
+  if (normalized.includes('온양터미널') || normalized.includes('아산터미널')) {
+    return '온양역/아산터미널';
+  }
+  if (normalized === '온양역' || normalized === '온양') {
+    return '온양역/아산터미널';
+  }
+  
+  // 천안 터미널 관련 정규화
+  if (normalized.includes('천안터미널') && !normalized.includes('천안역')) {
+    return '천안 터미널';
+  }
+  
+  // 천안역 관련 정규화
+  if (normalized.includes('천안역') && !normalized.includes('천안아산역') && !normalized.includes('천안 아산역')) {
+    return '천안역';
+  }
+  
+  // 천안 아산역 관련 정규화
+  if (normalized.includes('천안아산역') || normalized.includes('천안 아산역')) {
+    return '천안 아산역';
+  }
+  
+  return normalized;
+};
+
 const buildDayTypeMatchStage = (dayTypes) => {
   if (!dayTypes || dayTypes.length === 0) return null;
   if (dayTypes.length === 1) return { dayType: dayTypes[0] };
@@ -152,30 +186,37 @@ exports.getShuttleSchedules = async (req, res) => {
       }
     }
     
-    // 경유지도 출발지로 검색 가능
+    // 경유지도 출발지로 검색 가능 (정규화 적용)
     if (departure) {
+      const normalizedDeparture = normalizeStopName(departure);
       filter.$or = [
-        { departure: departure },
+        { departure: normalizedDeparture },
+        { departure: departure }, // 원본도 검색 (하위 호환성)
+        { 'viaStops.name': normalizedDeparture },
         { 'viaStops.name': departure }
       ];
     }
     
-    // 경유지도 도착지로 검색 가능
+    // 경유지도 도착지로 검색 가능 (정규화 적용)
     if (arrival) {
+      const normalizedArrival = normalizeStopName(arrival);
+      const arrivalFilter = {
+        $or: [
+          { arrival: normalizedArrival },
+          { arrival: arrival }, // 원본도 검색 (하위 호환성)
+          { 'viaStops.name': normalizedArrival },
+          { 'viaStops.name': arrival }
+        ]
+      };
+      
       if (filter.$or) {
         filter.$and = [
           { $or: filter.$or },
-          { $or: [
-            { arrival: arrival },
-            { 'viaStops.name': arrival }
-          ]}
+          arrivalFilter
         ];
         delete filter.$or;
       } else {
-        filter.$or = [
-          { arrival: arrival },
-          { 'viaStops.name': arrival }
-        ];
+        filter.$or = arrivalFilter.$or;
       }
     }
 

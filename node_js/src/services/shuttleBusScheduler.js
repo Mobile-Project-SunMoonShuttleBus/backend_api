@@ -103,7 +103,7 @@ async function runManually() {
   console.log('수동 실행: 셔틀버스 시간표 크롤링 시작');
   console.log(`실행 시간: ${new Date().toLocaleString('ko-KR')}`);
   
-  const TOTAL_TIMEOUT = 25000; // 전체 최대 25초
+  const TOTAL_TIMEOUT = 100000; // 전체 최대 100초
   const startTime = Date.now();
   
   // 강제 타임아웃: 절대 25초를 넘지 않도록
