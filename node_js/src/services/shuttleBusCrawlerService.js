@@ -74,17 +74,19 @@ async function fetchHtml(url) {
         timeout: 8000
       });
       
-      // JS 실행 완료까지 대기
+      // JS 실행 완료까지 대기 (테이블이 완전히 로드될 때까지)
       await page.waitForFunction(
         () => {
           const text = document.body.innerText;
           const timeMatches = text.match(/\d{1,2}[:;]\d{2}/g);
           return timeMatches && timeMatches.length >= 3;
         },
-        { timeout: 2000 }
+        { timeout: 5000 }
       ).catch(() => {});
       
-      await new Promise(resolve => setTimeout(resolve, 300));
+      // 테이블이 완전히 렌더링될 때까지 추가 대기
+      await page.waitForSelector('table', { timeout: 3000 }).catch(() => {});
+      await new Promise(resolve => setTimeout(resolve, 1000));
       
       const html = await page.evaluate(() => {
         return document.documentElement.outerHTML;
@@ -151,10 +153,12 @@ function normalizeArrival(arrival) {
     '천안터미널': '천안 터미널',
     '천안 터미널': '천안 터미널',
     '터미널': '천안 터미널',
-    '온양역/아산터미널': '온양역/아산터미널',
-    '온양역/터미널': '온양역/아산터미널',
-    '온양온천역': '온양온천역',
-    '온양 온천역': '온양온천역',
+    '온양역/아산터미널': '아산터미널', // 온양역/아산터미널 → 아산터미널로 정규화
+    '온양역/터미널': '아산터미널', // 온양역/터미널 → 아산터미널로 정규화
+    '온양온천역': '아산터미널', // 온양온천역 → 아산터미널로 정규화 (경유지이므로 최종 목적지는 아산터미널)
+    '온양 온천역': '아산터미널', // 온양온천역 → 아산터미널로 정규화
+    '온양역': '아산터미널', // 온양역 → 아산터미널로 정규화
+    '아산터미널': '아산터미널', // 아산터미널은 그대로 유지
     '주은아파트': '주은아파트 버스정류장',
     '주은아파트 버스정류장': '주은아파트 버스정류장',
     '권곡초 버스정류장': '권곡초 버스정류장',
@@ -268,9 +272,72 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
     return results;
   };
 
+  // "5분~20분 소요예상" 같은 텍스트를 파싱하여 실제 시간으로 변환
+  const parseDurationText = (text, baseTime) => {
+    if (!text || !baseTime) return null;
+    
+    // "5분~20분 소요예상", "5~20분 소요", "5-20분", "5분~20분" 등의 패턴 매칭
+    // 첫 번째 숫자 뒤에 "분"이 올 수도 있고, 두 번째 숫자 뒤에만 "분"이 올 수도 있음
+    const durationMatch = text.match(/(\d+)\s*분?\s*[~-]\s*(\d+)\s*분/);
+    if (!durationMatch) return null;
+    
+    const minMinutes = parseInt(durationMatch[1], 10);
+    const maxMinutes = parseInt(durationMatch[2], 10);
+    
+    // baseTime을 분으로 변환
+    const [baseHour, baseMin] = baseTime.split(':').map(Number);
+    const baseMinutes = baseHour * 60 + baseMin;
+    
+    // 최소 시간과 최대 시간 계산
+    const minTimeMinutes = baseMinutes + minMinutes;
+    const maxTimeMinutes = baseMinutes + maxMinutes;
+    
+    const minHour = Math.floor(minTimeMinutes / 60) % 24; // 24시간 형식으로 변환
+    const minMin = minTimeMinutes % 60;
+    const maxHour = Math.floor(maxTimeMinutes / 60) % 24; // 24시간 형식으로 변환
+    const maxMin = maxTimeMinutes % 60;
+    
+    return `${String(minHour).padStart(2, '0')}:${String(minMin).padStart(2, '0')}~${String(maxHour).padStart(2, '0')}:${String(maxMin).padStart(2, '0')}`;
+  };
+  
+  // 이전 경유지 시간 범위를 기준으로 다음 경유지 시간 계산
+  // 이전 경유지가 "09:05~09:20"이면, 다음 경유지는 "(09:05 + 5분) ~ (09:20 + 20분)" = "09:10~09:40"
+  const parseDurationTextForNextViaStop = (text, previousTimeRange) => {
+    if (!text || !previousTimeRange) return null;
+    
+    // "5분~20분 소요예상" 패턴 매칭
+    const durationMatch = text.match(/(\d+)\s*분?\s*[~-]\s*(\d+)\s*분/);
+    if (!durationMatch) return null;
+    
+    const minMinutes = parseInt(durationMatch[1], 10);
+    const maxMinutes = parseInt(durationMatch[2], 10);
+    
+    // 이전 경유지 시간 범위 파싱 (예: "09:05~09:20")
+    if (!previousTimeRange.includes('~')) return null;
+    const [prevMinTime, prevMaxTime] = previousTimeRange.split('~').map(t => t.trim());
+    
+    // 이전 경유지의 최소 시간과 최대 시간을 분으로 변환
+    const [prevMinHour, prevMinMin] = prevMinTime.split(':').map(Number);
+    const [prevMaxHour, prevMaxMin] = prevMaxTime.split(':').map(Number);
+    const prevMinMinutes = prevMinHour * 60 + prevMinMin;
+    const prevMaxMinutes = prevMaxHour * 60 + prevMaxMin;
+    
+    // 다음 경유지 시간 계산: (이전 최소 시간 + 5분) ~ (이전 최대 시간 + 20분)
+    const nextMinMinutes = prevMinMinutes + minMinutes;
+    const nextMaxMinutes = prevMaxMinutes + maxMinutes;
+    
+    const nextMinHour = Math.floor(nextMinMinutes / 60) % 24;
+    const nextMinMin = nextMinMinutes % 60;
+    const nextMaxHour = Math.floor(nextMaxMinutes / 60) % 24;
+    const nextMaxMin = nextMaxMinutes % 60;
+    
+    return `${String(nextMinHour).padStart(2, '0')}:${String(nextMinMin).padStart(2, '0')}~${String(nextMaxHour).padStart(2, '0')}:${String(nextMaxMin).padStart(2, '0')}`;
+  };
+
   // 경유지 시간 추정
   const estimateViaStopTime = (viaStopName, departureTime, arrivalTime, allViaStops, rawText = '') => {
-    if (!departureTime || !arrivalTime || arrivalTime === 'X') {
+    if (!departureTime || departureTime === 'X') {
+      // 출발시간이 없으면 rawText를 그대로 반환
       if (rawText && rawText.trim() && !/^[XΧ]+$/i.test(rawText)) {
         return rawText.trim();
       }
@@ -283,6 +350,27 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
       return existingVia.time;
     }
     
+    // "5분~20분 소요예상" 같은 텍스트를 실제 시간으로 변환
+    if (rawText && rawText.trim() && !/^[XΧ]+$/i.test(rawText)) {
+      const parsedTime = parseDurationText(rawText, departureTime);
+      if (parsedTime) {
+        return parsedTime;
+      }
+    }
+    
+    // arrivalTime이 없으면 parseDurationText로만 처리
+    if (!arrivalTime || arrivalTime === 'X') {
+      // "5분~20분 소요예상" 같은 텍스트를 실제 시간으로 변환 시도
+      if (rawText && rawText.trim() && !/^[XΧ]+$/i.test(rawText)) {
+        const parsedTime = parseDurationText(rawText, departureTime);
+        if (parsedTime) {
+          return parsedTime;
+        }
+        // parseDurationText가 실패하면 null 반환 (rawText를 그대로 반환하지 않음)
+      }
+      return null;
+    }
+    
     // 분으로 변환
     const [depHour, depMin] = departureTime.split(':').map(Number);
     const [arrHour, arrMin] = arrivalTime.split(':').map(Number);
@@ -290,8 +378,13 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
     const arrMinutes = arrHour * 60 + arrMin;
     
     if (arrMinutes <= depMinutes) {
+      // "5분~20분 소요예상" 같은 텍스트를 실제 시간으로 변환 시도
       if (rawText && rawText.trim() && !/^[XΧ]+$/i.test(rawText)) {
-        return rawText.trim();
+        const parsedTime = parseDurationText(rawText, departureTime);
+        if (parsedTime) {
+          return parsedTime;
+        }
+        // parseDurationText가 실패하면 null 반환 (rawText를 그대로 반환하지 않음)
       }
       return null;
     }
@@ -322,7 +415,16 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
 
   const mergeViaStops = (base, additions, departureTime = null, arrivalTime = null, rawTextMap = {}) => {
     const exists = new Set(base.map((item) => `${item.name}|${item.time || ''}|${item.source || ''}`));
-    additions.forEach((item) => {
+    
+    // 경유지를 순서대로 처리하기 위해 정렬 (departureTime 기준)
+    const sortedAdditions = [...additions].sort((a, b) => {
+      // 시간이 있는 항목을 우선 처리
+      if (a.time && !b.time) return -1;
+      if (!a.time && b.time) return 1;
+      return 0;
+    });
+    
+    sortedAdditions.forEach((item) => {
       if (!item || !item.name) return;
       
       // 탕정역은 제외 (테이블에 컬럼이 없음)
@@ -334,18 +436,95 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
       if (!exists.has(key)) {
         let viaTime = item.time;
         
-        // "경유"만 있는 경우
+        // "경유"만 있는 경우 시간 추정 시도
         if (!viaTime && item.rawText && item.rawText.trim() === '경유') {
-          viaTime = '경유';
+          // 출발시간과 도착시간이 있으면 시간 추정
+          if (departureTime && arrivalTime && arrivalTime !== 'X') {
+            viaTime = estimateViaStopTime(item.name, departureTime, arrivalTime, base, item.rawText);
+          }
+          // 추정 실패하면 '경유'로 저장
+          if (!viaTime) {
+            viaTime = '경유';
+          }
         }
-        // 시간이 없고 출발시간/도착시간이 있으면 추정
-        else if (!viaTime && departureTime && arrivalTime) {
+        // 시간이 없고 출발시간이 있으면 추정
+        else if (!viaTime && departureTime) {
           const rawText = item.rawText || rawTextMap[item.name] || '';
-          viaTime = estimateViaStopTime(item.name, departureTime, arrivalTime, base, rawText);
+          
+          // 이전 경유지의 도착시간을 기준으로 계산 (경유지 도착시간 = 다음 경유지 출발시간)
+          let baseTimeForEstimation = departureTime;
+          if (base.length > 0) {
+            const lastVia = base[base.length - 1];
+            if (lastVia.time) {
+              // 마지막 경유지의 시간이 범위인 경우 (예: "09:05~09:20")
+              // 경유지 도착시간의 끝 시간을 기준으로 다음 경유지 출발시간 계산
+              if (lastVia.time.includes('~')) {
+                const [, endTime] = lastVia.time.split('~');
+                baseTimeForEstimation = endTime.trim();
+              } else {
+                baseTimeForEstimation = lastVia.time;
+              }
+            }
+          }
+          
+          // "5분~20분 소요예상" 같은 텍스트를 실제 시간으로 변환
+          if (rawText && rawText.trim() && !/^[XΧ]+$/i.test(rawText)) {
+            // 먼저 parseDurationText 시도 (baseTimeForEstimation 사용)
+            let parsedTime = parseDurationText(rawText, baseTimeForEstimation);
+            
+            // baseTimeForEstimation으로 실패하면 departureTime으로 재시도
+            if (!parsedTime && baseTimeForEstimation !== departureTime && departureTime) {
+              parsedTime = parseDurationText(rawText, departureTime);
+            }
+            
+            if (parsedTime) {
+              // 파싱된 시간은 경유지 도착시간 범위
+              // 예: baseTimeForEstimation="07:30" + "5분~20분 소요예상" → "07:35~07:50"
+              viaTime = parsedTime;
+            } else if (arrivalTime && arrivalTime !== 'X') {
+              // 파싱 실패 시 기존 추정 로직 사용
+              viaTime = estimateViaStopTime(item.name, baseTimeForEstimation, arrivalTime, base, rawText);
+            }
+            // parseDurationText가 실패하고 arrivalTime도 없으면 viaTime은 null로 유지
+            // (아래 조건문에서 처리하지 않음 - rawText는 그대로 저장하지 않음)
+          } else if (arrivalTime && arrivalTime !== 'X') {
+            // rawText가 없으면 기존 추정 로직 사용
+            viaTime = estimateViaStopTime(item.name, baseTimeForEstimation, arrivalTime, base, rawText);
+          }
         }
-        // 시간이 없고 텍스트만 있는 경우
-        else if (!viaTime && item.rawText && item.rawText.trim() && !/^[XΧ]+$/i.test(item.rawText)) {
-          viaTime = item.rawText.trim();
+        // 시간이 아직 설정되지 않았고 rawText가 있는 경우
+        // parseDurationText가 위에서 실패했을 수 있으므로 departureTime으로 다시 시도
+        if (!viaTime && item.rawText && item.rawText.trim() && !/^[XΧ]+$/i.test(item.rawText)) {
+          // departureTime이 있으면 parseDurationText 재시도
+          if (departureTime) {
+            const retryParsedTime = parseDurationText(item.rawText, departureTime);
+            if (retryParsedTime) {
+              viaTime = retryParsedTime;
+            }
+          }
+          // parseDurationText가 실패하고 arrivalTime이 있으면 estimateViaStopTime 시도
+          if (!viaTime && arrivalTime && arrivalTime !== 'X' && departureTime) {
+            viaTime = estimateViaStopTime(item.name, departureTime, arrivalTime, base, item.rawText);
+          }
+          // 여전히 실패하면 이전 경유지 시간 기준으로 추정 시도
+          if (!viaTime && departureTime && base.length > 0) {
+            const lastVia = base[base.length - 1];
+            if (lastVia.time) {
+              let baseTime = departureTime;
+              if (lastVia.time.includes('~')) {
+                const [, endTime] = lastVia.time.split('~');
+                baseTime = endTime.trim();
+              } else {
+                baseTime = lastVia.time;
+              }
+              const estimatedTime = parseDurationText(item.rawText, baseTime);
+              if (estimatedTime) {
+                viaTime = estimatedTime;
+              } else if (arrivalTime && arrivalTime !== 'X') {
+                viaTime = estimateViaStopTime(item.name, baseTime, arrivalTime, base, item.rawText);
+              }
+            }
+          }
         }
         
         base.push({
@@ -545,6 +724,7 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
         const cellText = $(cell).text().trim();
         const normalizedCellText = cellText.replace(/\s+/g, '');
         
+        
         // 출발 컬럼 후보
         const hasDepartureKeyword = normalizedCellText.includes('출발');
         const hasArrivalKeyword = normalizedCellText.includes('도착');
@@ -561,7 +741,8 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
                                normalizedCellText.includes('아파트') ||
                                normalizedCellText.includes('버스정류장') ||
                                normalizedCellText.includes('초등학교') ||
-                               normalizedCellText.includes('권곡');
+                               normalizedCellText.includes('권곡') ||
+                               normalizedCellText.includes('아산'); // 아산터미널 인식용
         
         // 출발 컬럼 조건: "출발" 키워드가 있고 "도착" 키워드가 없어야 함
         const isDepartureColumn = hasDepartureKeyword && !hasArrivalKeyword;
@@ -571,6 +752,7 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
         
         // 도착 컬럼도 별도로 저장 (도착시간 파싱용)
         const isArrivalColumn = hasArrivalKeyword && !hasDepartureKeyword;
+        
         
         if (isDepartureColumn || isIntermediateStopColumn) {
           // 천안 아산역
@@ -591,21 +773,23 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
               departureColIndices['아산캠퍼스'] = cellIdx;
             }
           }
+          // 아산터미널 (천안 터미널보다 먼저 확인해야 함 - "아산"과 "터미널"이 모두 포함된 경우)
+          else if (normalizedCellText.includes('아산터미널') || (normalizedCellText.includes('아산') && normalizedCellText.includes('터미널') && !normalizedCellText.includes('천안'))) {
+            departureColIndices['아산터미널'] = cellIdx;
+            if (normalizedDeparture === '온양역/아산터미널') {
+            }
+          }
           // 천안 터미널
-          else if (normalizedCellText.includes('천안터미널') || (normalizedCellText.includes('터미널') && !normalizedCellText.includes('천안역'))) {
+          else if (normalizedCellText.includes('천안터미널') || (normalizedCellText.includes('터미널') && !normalizedCellText.includes('천안역') && !normalizedCellText.includes('아산'))) {
             departureColIndices['천안 터미널'] = cellIdx;
           }
           // 온양온천역
-          else if (normalizedCellText.includes('온천역')) {
+          else if (normalizedCellText.includes('온천역') || normalizedCellText.includes('온양온천역')) {
             departureColIndices['온양온천역'] = cellIdx;
           }
           // 주은아파트
           else if (normalizedCellText.includes('주은아파트')) {
             departureColIndices['주은아파트 버스정류장'] = cellIdx;
-          }
-          // 아산터미널
-          else if (normalizedCellText.includes('아산터미널')) {
-            departureColIndices['아산터미널'] = cellIdx;
           }
           // 권곡초
           else if (normalizedCellText.includes('권곡초')) {
@@ -681,10 +865,6 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
 
       // 온양역/아산터미널 특수 처리
       if (normalizedDeparture === '온양역/아산터미널') {
-        if (process.env.DEBUG_CRAWLER) {
-          console.log('[온양역/아산터미널] 특수 처리 시작');
-          console.log('[온양역/아산터미널] departureColIndices:', Object.keys(departureColIndices));
-        }
         const campusDepartureIdx = departureColIndices['아산캠퍼스'];
         const campusArrivalIdx = columnMap.arrival;
 
@@ -700,6 +880,8 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
             name: stopName
           }))
           .sort((a, b) => a.idx - b.idx);
+        
+        const asanTerminalCol = stopColumns.find(col => col.name === '아산터미널');
 
         for (let i = headerRowIdx + 1; i < rows.length; i++) {
           const $row = $(rows[i]);
@@ -750,74 +932,107 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
             ? (extractTimeValue($(cells[campusArrivalIdx]).text()) || 'X')
             : 'X';
 
-          // 정류장 -> 아산캠
-          for (const { idx, name } of validStopColumns) {
-            const timeText = $(cells[idx]).text();
-            const departureTime = extractTimeValue(timeText);
-            if (!departureTime) continue;
+          // 하교 방향: 정류장 → 아산캠퍼스 (도착)
+          // 아산캠퍼스 도착 컬럼이 있을 때만 하교 방향 처리
+          if (campusArrivalIdx !== undefined && campusArrivalIdx < cells.length) {
+            for (const { idx, name } of validStopColumns) {
+              const timeText = $(cells[idx]).text();
+              const departureTime = extractTimeValue(timeText);
+              if (!departureTime) continue;
 
-            // 정류장 이름 정규화 (온양온천역, 아산터미널 → 온양역/아산터미널)
+              // 권곡초 버스정류장은 출발지로 사용하지 않음 (아산터미널 이후 정류장)
+              if (name === '권곡초 버스정류장' || name.includes('권곡')) {
+                continue;
+              }
+
+            // 온양온천역과 아산터미널 모두 출발지로 사용 가능
             let normalizedStopName = name;
-            if (name === '온양온천역' || name === '아산터미널') {
-              normalizedStopName = '온양역/아산터미널';
+            if (name === '온양온천역') {
+              normalizedStopName = '온양온천역';
+            } else if (name === '아산터미널') {
+              normalizedStopName = '아산터미널';
             }
 
-            // 다른 정류장들을 경유지로 추가
+            // 다른 정류장들을 경유지로 추가 (출발지와 목적지 사이의 모든 정류장)
             const viaStopsForRoute = [];
+            
+            // 출발지와 목적지 사이의 정류장들을 순서대로 찾기
+            const depTime = departureTime.split(':').map(Number);
+            const depMinutes = depTime[0] * 60 + depTime[1];
+            
+            // 도착시간 확인
+            let arrMinutes = null;
+            if (arrivalTime && arrivalTime !== 'X') {
+              const arrTime = arrivalTime.split(':').map(Number);
+              arrMinutes = arrTime[0] * 60 + arrTime[1];
+            }
+            
+            // 하교 방향: 출발지 → 아산캠퍼스
+            // 출발지와 목적지(아산캠퍼스 도착) 사이의 정류장만 경유지로 포함 (컬럼 인덱스 범위로 판단)
+            const intermediateStops = [];
+            const campusArrivalColumnIdx = campusArrivalIdx;
+            
             for (const { idx: otherIdx, name: otherName } of validStopColumns) {
-              if (otherIdx === idx) continue;
+              if (otherIdx === idx) continue; // 출발지 제외
+              
+              // 하교 방향: 출발지와 목적지(아산캠퍼스 도착) 사이에 있는 정류장만 포함
+              // idx < otherIdx < campusArrivalColumnIdx
+              if (otherIdx <= idx) {
+                continue; // 출발지 이전 또는 출발지와 같은 정류장 제외
+              }
+              if (campusArrivalColumnIdx !== undefined && otherIdx >= campusArrivalColumnIdx) {
+                continue; // 목적지 이후 또는 목적지와 같은 정류장 제외
+              }
+              
               const otherCell = cells.eq(otherIdx);
               const otherTimeText = otherCell.text().trim();
               const otherTime = extractTimeValue(otherTimeText);
+              const isX = /^[XΧ]+$/i.test(otherTimeText);
+              
               if (otherTime) {
-                // 출발~도착 시간 사이면 경유지
-                const depTime = departureTime.split(':').map(Number);
-                const depMinutes = depTime[0] * 60 + depTime[1];
-                const othTime = otherTime.split(':').map(Number);
-                const othMinutes = othTime[0] * 60 + othTime[1];
-                
-                // 도착시간 확인
-                let arrMinutes = null;
-                if (arrivalTime && arrivalTime !== 'X') {
-                  const arrTime = arrivalTime.split(':').map(Number);
-                  arrMinutes = arrTime[0] * 60 + arrTime[1];
-                }
-                
-                // 출발 시간보다 늦고, 도착 시간이 있으면 도착 시간보다 빠른지 확인
-                if (othMinutes > depMinutes && (!arrMinutes || othMinutes < arrMinutes)) {
-                  // 경유지 이름도 정규화
-                  let normalizedViaName = otherName;
-                  if (otherName === '온양온천역' || otherName === '아산터미널') {
-                    normalizedViaName = '온양역/아산터미널';
-                  }
-                  // 도착 컬럼은 경유지에서 제외
-                  if (normalizedViaName.includes('_도착')) {
-                    return;
-                  }
-                  viaStopsForRoute.push({
-                    name: normalizedViaName,
-                    time: otherTime,
-                    source: 'table'
-                  });
-                }
-              } else if (otherTimeText && (otherTimeText.includes('경유') || !/^[XΧ]+$/i.test(otherTimeText))) {
-                // 경유 텍스트가 있으면 경유지로 추가
-                let normalizedViaName = otherName;
-                if (otherName === '온양온천역' || otherName === '아산터미널') {
-                  normalizedViaName = '온양역/아산터미널';
-                }
-                // 도착 컬럼은 경유지에서 제외
-                if (normalizedViaName.includes('_도착')) {
-                  continue;
-                }
-                viaStopsForRoute.push({
-                  name: normalizedViaName,
-                  time: null,
+                // 시간이 있으면 경유지로 추가
+                intermediateStops.push({
+                  name: otherName,
+                  time: otherTime,
+                  minutes: otherTime.split(':').map(Number).reduce((h, m) => h * 60 + m),
+                  source: 'table',
+                  columnIdx: otherIdx
+                });
+              } else if (isX) {
+                // X로 표시된 경우도 경유지로 추가
+                intermediateStops.push({
+                  name: otherName,
+                  time: 'X',
+                  minutes: 0,
                   rawText: otherTimeText,
-                  source: 'table'
+                  source: 'table',
+                  columnIdx: otherIdx
+                });
+              } else if (otherTimeText && (otherTimeText.includes('경유') || otherTimeText.trim())) {
+                // "경유" 텍스트가 있으면 경유지로 추가 (시간은 나중에 추정)
+                intermediateStops.push({
+                  name: otherName,
+                  time: null,
+                  minutes: 0,
+                  rawText: otherTimeText,
+                  source: 'table',
+                  columnIdx: otherIdx
                 });
               }
             }
+            
+            // 컬럼 인덱스 순서로 정렬 (하교 방향이므로 출발지에서 목적지 순서)
+            intermediateStops.sort((a, b) => (a.columnIdx || 999) - (b.columnIdx || 999));
+            
+            // 경유지 추가
+            intermediateStops.forEach(stop => {
+              viaStopsForRoute.push({
+                name: stop.name,
+                time: stop.time,
+                rawText: stop.rawText || null,
+                source: stop.source
+              });
+            });
             // 도착시간 먼저 찾기
             let finalArrivalTime = arrivalTime;
             if (!finalArrivalTime && departureColIndices['아산캠퍼스_도착'] !== undefined) {
@@ -828,85 +1043,177 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
               }
             }
 
+            // 경유지 시간 추정 (mergeViaStops 사용)
+            mergeViaStops(viaStopsForRoute, viaStopsFromNote, departureTime, finalArrivalTime || 'X');
+
             // 도착시간이 없으면 X로 저장
-            schedules.push({
-              departure: normalizedStopName,
-              arrival: '아산캠퍼스',
-              departureTime,
-              arrivalTime: finalArrivalTime || 'X',
-              fridayOperates,
-              dayType,
-              note: noteText || '',
-              viaStops: viaStopsForRoute,
-              studentHallBoardingAvailable: hasHighlight(cells.eq(idx)),
-              sourceUrl: CRAWL_URLS[dayType]?.[expectedDeparture] || ''
-            });
+              schedules.push({
+                departure: normalizedStopName,
+                arrival: '아산캠퍼스',
+                departureTime,
+                arrivalTime: finalArrivalTime || 'X',
+                fridayOperates,
+                dayType,
+                note: noteText || '',
+                viaStops: viaStopsForRoute,
+                studentHallBoardingAvailable: hasHighlight(cells.eq(idx)),
+                sourceUrl: CRAWL_URLS[dayType]?.[expectedDeparture] || ''
+              });
+            }
           }
 
-          // 아산캠 -> 정류장
+          // 등교 방향: 아산캠퍼스 (출발) → 정류장
           if (campusDepartureIdx !== undefined && campusDepartureIdx < cells.length) {
             const campusCell = cells.eq(campusDepartureIdx);
-            const campusDepartureTime = extractTimeValue(campusCell.text());
-            if (campusDepartureTime) {
-              for (const { idx, name } of validStopColumns) {
+            const campusCellText = campusCell.text().trim();
+            const campusDepartureTime = extractTimeValue(campusCellText);
+            const campusIsX = /^[XΧ]+$/i.test(campusCellText);
+            
+            // 등교 방향: 아산캠퍼스 출발 시간이 있거나 X로 표시된 경우만 처리
+            if (campusDepartureTime || campusIsX) {
+              // X인 경우 출발시간을 null로 설정 (나중에 "X"로 저장)
+              const actualDepartureTime = campusDepartureTime || null;
+              
+              // 등교 방향: 아산터미널까지만 파싱 (권곡초는 아산터미널 이후이므로 제외)
+              const asanTerminalCol = validStopColumns.find(col => col.name === '아산터미널');
+              const asanTerminalIdx = asanTerminalCol ? asanTerminalCol.idx : undefined;
+              
+              // 등교 방향용 정류장 목록: 아산터미널까지만 포함 (권곡초 제외)
+              const validStopColumnsForGoing = validStopColumns.filter(col => {
+                // 권곡초는 등교 방향에서 제외
+                if (col.name === '권곡초 버스정류장' || col.name.includes('권곡')) {
+                  return false;
+                }
+                // 아산터미널이 있으면 아산터미널까지만 포함
+                if (asanTerminalIdx !== undefined && col.idx > asanTerminalIdx) {
+                  return false;
+                }
+                return true;
+              });
+              
+              // 아산터미널 스케줄 생성 확인용 디버그
+              const asanTerminalInValid = validStopColumnsForGoing.find(col => col.name === '아산터미널');
+              if (asanTerminalInValid) {
+                const testCell = cells.eq(asanTerminalInValid.idx);
+                const testValue = testCell.text();
+                const testTime = extractTimeValue(testValue);
+              }
+              
+              for (const { idx, name } of validStopColumnsForGoing) {
                 const stopCell = cells.eq(idx);
-                const stopValue = stopCell.text();
+                const stopValue = stopCell.text().trim();
                 const stopTime = extractTimeValue(stopValue);
-                if (!stopTime) continue;
-
-                // 정류장 이름 정규화 (온양온천역, 아산터미널 → 온양역/아산터미널)
-                let normalizedStopName = name;
-                if (name === '온양온천역' || name === '아산터미널') {
-                  normalizedStopName = '온양역/아산터미널';
+                const stopIsX = /^[XΧ]+$/i.test(stopValue);
+                
+                // 목적지 시간이 없으면 스킵 (X도 아니고 시간도 없으면)
+                // 단, 아산캠퍼스 출발이 X인 경우는 목적지 시간이 있으면 무조건 스케줄 생성
+                // 목적지 시간이 없고 X도 아니면 스킵 (단, 아산캠퍼스 출발이 X이고 목적지가 X인 경우는 생성)
+                if (!stopTime && !stopIsX) {
+                  // 아산캠퍼스 출발이 X이고 목적지도 X인 경우만 생성
+                  if (!campusIsX) continue;
                 }
 
-                // 다른 정류장들을 경유지로 추가
+                // 온양온천역은 목적지로 저장하지 않음 (경유지로만 처리)
+                // 아산터미널만 최종 목적지로 저장
+                if (name === '온양온천역') {
+                  // 온양온천역은 경유지로만 사용하므로 목적지로 저장하지 않음
+                  continue;
+                }
+                
+                let normalizedStopName = name;
+                if (name === '아산터미널') {
+                  normalizedStopName = '아산터미널';
+                } else {
+                  // 다른 정류장 이름은 그대로 사용
+                  normalizedStopName = name;
+                }
+
+                // 등교 방향: 아산캠퍼스 → 아산터미널
+                // 출발지와 목적지 사이의 정류장만 경유지로 포함 (컬럼 인덱스 범위로 판단)
                 const viaStopsForRoute = [];
-                for (const { idx: otherIdx, name: otherName } of validStopColumns) {
-                  if (otherIdx === idx) continue;
+                const arrivalColumnIdx = idx;
+                
+                // 등교 방향: 출발지(아산캠퍼스)와 목적지 사이의 정류장만 경유지
+                const intermediateStops = [];
+                for (const { idx: otherIdx, name: otherName } of validStopColumnsForGoing) {
+                  if (otherIdx === idx) continue; // 목적지 제외
+                  
+                  // 등교 방향: 출발지(아산캠퍼스)와 목적지 사이에 있는 정류장만 포함
+                  // campusDepartureIdx < otherIdx < arrivalColumnIdx
+                  if (campusDepartureIdx !== undefined && otherIdx <= campusDepartureIdx) {
+                    continue; // 출발지 이전 또는 출발지와 같은 정류장 제외
+                  }
+                  if (otherIdx >= arrivalColumnIdx) {
+                    continue; // 목적지 이후 또는 목적지와 같은 정류장 제외
+                  }
+                  
+                  // 등교 방향: 출발지와 목적지 사이의 정류장만 경유지로 추가
                   const otherCell = cells.eq(otherIdx);
                   const otherTimeText = otherCell.text().trim();
                   const otherTime = extractTimeValue(otherTimeText);
+                  const isX = /^[XΧ]+$/i.test(otherTimeText);
+                  
                   if (otherTime) {
-                    // 출발~도착 시간 사이면 경유지
-                    const depTime = campusDepartureTime.split(':').map(Number);
-                    const arrTime = stopTime.split(':').map(Number);
-                    const othTime = otherTime.split(':').map(Number);
-                    if (othTime[0] * 60 + othTime[1] > depTime[0] * 60 + depTime[1] &&
-                        othTime[0] * 60 + othTime[1] < arrTime[0] * 60 + arrTime[1]) {
-                      // 경유지 이름도 정규화
-                      let normalizedViaName = otherName;
-                      if (otherName === '온양온천역' || otherName === '아산터미널') {
-                        normalizedViaName = '온양역/아산터미널';
-                      }
-                      viaStopsForRoute.push({
-                        name: normalizedViaName,
-                        time: otherTime,
-                        source: 'table'
-                      });
-                    }
-                  } else if (otherTimeText && (otherTimeText.includes('경유') || !/^[XΧ]+$/i.test(otherTimeText))) {
-                    // 경유 텍스트가 있으면 경유지로 추가
-                    let normalizedViaName = otherName;
-                    if (otherName === '온양온천역' || otherName === '아산터미널') {
-                      normalizedViaName = '온양역/아산터미널';
-                    }
-                    viaStopsForRoute.push({
-                      name: normalizedViaName,
-                      time: null,
+                    // 시간이 있으면 경유지로 추가
+                    intermediateStops.push({
+                      name: otherName,
+                      time: otherTime,
+                      minutes: otherTime.split(':').map(Number).reduce((h, m) => h * 60 + m),
+                      source: 'table',
+                      columnIdx: otherIdx
+                    });
+                  } else if (isX) {
+                    // X로 표시된 경우도 경유지로 추가
+                    intermediateStops.push({
+                      name: otherName,
+                      time: 'X',
+                      minutes: 0, // 정렬을 위한 임시 값
                       rawText: otherTimeText,
-                      source: 'table'
+                      source: 'table',
+                      columnIdx: otherIdx
+                    });
+                  } else if (otherTimeText && (otherTimeText.includes('경유') || otherTimeText.trim())) {
+                    // "경유" 텍스트가 있으면 경유지로 추가 (시간은 나중에 추정)
+                    intermediateStops.push({
+                      name: otherName,
+                      time: null,
+                      minutes: 0,
+                      rawText: otherTimeText,
+                      source: 'table',
+                      columnIdx: otherIdx
                     });
                   }
                 }
-                mergeViaStops(viaStopsForRoute, viaStopsFromNote, campusDepartureTime, stopTime || 'X');
+                
+                // 컬럼 인덱스 순서로 정렬 (등교 방향이므로 출발지에서 목적지 순서)
+                intermediateStops.sort((a, b) => (a.columnIdx || 999) - (b.columnIdx || 999));
+                
+                // 경유지 추가
+                intermediateStops.forEach(stop => {
+                  viaStopsForRoute.push({
+                    name: stop.name,
+                    time: stop.time,
+                    rawText: stop.rawText || null,
+                    source: stop.source
+                  });
+                });
+                
+                // mergeViaStops로 경유지 시간 추정 및 정리
+                const finalDepartureTime = actualDepartureTime || 'X';
+                const finalArrivalTime = stopTime || (stopIsX ? 'X' : 'X');
+                mergeViaStops(viaStopsForRoute, viaStopsFromNote, finalDepartureTime, finalArrivalTime);
 
+                // 권곡초 버스정류장은 도착지로 저장하지 않음
+                if (normalizedStopName === '권곡초 버스정류장' || normalizedStopName.includes('권곡')) {
+                  continue;
+                }
+                
                 // 도착시간이 없으면 X로 저장
                 schedules.push({
                   departure: '아산캠퍼스',
                   arrival: normalizedStopName,
-                  departureTime: campusDepartureTime,
-                  arrivalTime: stopTime || 'X',
+                  departureTime: finalDepartureTime,
+                  arrivalTime: finalArrivalTime,
                   fridayOperates,
                   dayType,
                   note: noteText || '',
@@ -987,7 +1294,34 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
           if (stopName.includes('_도착')) continue;
           const cell = cells.eq(idx);
           const rawValue = cell.text().trim();
-          const timeValue = extractTimeValue(rawValue);
+          
+          // 시간 추출 시도 (여러 패턴 시도)
+          let timeValue = extractTimeValue(rawValue);
+          
+          // 시간이 없으면 다른 패턴 시도 (예: "09:30", "9:30", "0930" 등)
+          if (!timeValue && rawValue) {
+            // "09:30~09:45" 같은 범위 형식에서 첫 번째 시간 추출
+            const rangeMatch = rawValue.match(/(\d{1,2})[:;](\d{2})\s*[~-]\s*(\d{1,2})[:;](\d{2})/);
+            if (rangeMatch) {
+              const hour = parseInt(rangeMatch[1]);
+              const minute = parseInt(rangeMatch[2]);
+              if (hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59) {
+                timeValue = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+              }
+            }
+            // "0930" 같은 형식 시도
+            if (!timeValue) {
+              const noColonMatch = rawValue.match(/(\d{2})(\d{2})/);
+              if (noColonMatch) {
+                const hour = parseInt(noColonMatch[1]);
+                const minute = parseInt(noColonMatch[2]);
+                if (hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59) {
+                  timeValue = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+                }
+              }
+            }
+          }
+          
           if (timeValue) {
             viaStopsFromColumns.push({
               name: stopName,
@@ -1231,22 +1565,53 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
             : 'X';
 
         const viaStopsFromColumns = [];
-        // 천안역 페이지 특수 처리: 용암마을 컬럼은 도착시간으로 사용
-        const excludedStops = normalizedDeparture === '천안역' ? ['용암마을'] : [];
-        for (const [stopName, idx] of intermediateEntries) {
+        // 컬럼 인덱스 순서로 정렬하여 경유지 순서 보장
+        const sortedIntermediateEntries = [...intermediateEntries].sort((a, b) => {
+          const idxA = a[1] || 999;
+          const idxB = b[1] || 999;
+          return idxA - idxB;
+        });
+        
+        for (const [stopName, idx] of sortedIntermediateEntries) {
           if (idx === undefined || idx >= cells.length) continue;
-          // 용암마을 제외
-          if (excludedStops.includes(stopName)) continue;
           // 도착 컬럼 제외
           if (stopName.includes('_도착')) continue;
           const cell = cells.eq(idx);
           const rawValue = cell.text().trim();
-          const timeValue = extractTimeValue(rawValue);
+          
+          // 시간 추출 시도 (여러 패턴 시도)
+          let timeValue = extractTimeValue(rawValue);
+          
+          // 시간이 없으면 다른 패턴 시도 (예: "09:30", "9:30", "0930" 등)
+          if (!timeValue && rawValue) {
+            // "09:30~09:45" 같은 범위 형식에서 첫 번째 시간 추출
+            const rangeMatch = rawValue.match(/(\d{1,2})[:;](\d{2})\s*[~-]\s*(\d{1,2})[:;](\d{2})/);
+            if (rangeMatch) {
+              const hour = parseInt(rangeMatch[1]);
+              const minute = parseInt(rangeMatch[2]);
+              if (hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59) {
+                timeValue = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+              }
+            }
+            // "0930" 같은 형식 시도
+            if (!timeValue) {
+              const noColonMatch = rawValue.match(/(\d{2})(\d{2})/);
+              if (noColonMatch) {
+                const hour = parseInt(noColonMatch[1]);
+                const minute = parseInt(noColonMatch[2]);
+                if (hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59) {
+                  timeValue = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+                }
+              }
+            }
+          }
+          
           if (timeValue) {
             viaStopsFromColumns.push({
               name: stopName,
               time: timeValue,
-              source: 'table'
+              source: 'table',
+              columnIdx: idx // 컬럼 인덱스 저장 (정렬용)
             });
           } else if (rawValue && !/^[XΧ]+$/i.test(rawValue)) {
             // "경유"라고만 표시된 경우나 "5분~10분 소요예상" 같은 텍스트만 있는 경우
@@ -1255,7 +1620,8 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
               name: stopName,
               time: null,
               rawText: rawValue,
-              source: 'table'
+              source: 'table',
+              columnIdx: idx // 컬럼 인덱스 저장 (정렬용)
             });
           } else if (!rawValue || /^[XΧ]+$/i.test(rawValue)) {
             // 빈 값이거나 X만 있는 경우에도 경유지로 추가 (시간 추정 필요)
@@ -1265,7 +1631,8 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
               name: stopName,
               time: null,
               rawText: null,
-              source: 'table'
+              source: 'table',
+              columnIdx: idx // 컬럼 인덱스 저장 (정렬용)
             });
           } else {
             const viaFromCell = extractViaStopsFromText(rawValue);
@@ -1273,6 +1640,19 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
             mergeViaStops(viaStopsFromColumns, viaFromCell);
           }
         }
+        
+        // 경유지를 시간 순서로 정렬 (시간이 같거나 없으면 컬럼 인덱스 순서로 정렬)
+        viaStopsFromColumns.sort((a, b) => {
+          if (a.time && b.time) {
+            const timeA = a.time.split(':').map(Number).reduce((h, m) => h * 60 + m);
+            const timeB = b.time.split(':').map(Number).reduce((h, m) => h * 60 + m);
+            if (timeA !== timeB) return timeA - timeB;
+          }
+          if (a.time && !b.time) return -1;
+          if (!a.time && b.time) return 1;
+          // 시간이 같거나 둘 다 없으면 컬럼 인덱스 순서로 정렬
+          return (a.columnIdx || 999) - (b.columnIdx || 999);
+        });
 
         const viaStopsFromNote = extractViaStopsFromText(noteText);
         
@@ -1292,47 +1672,57 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
           const asanCell = cells.eq(asanColIdx);
           const asanTime = extractTimeValue(asanCell.text());
           if (asanTime) {
+            // 아산캠퍼스 → 천안역 방향: 경유지 없음 (직접 노선)
             const campusViaStops = [];
-            // 도착시간 먼저 찾기
-            let finalArrivalTime = arrivalTime;
-            if (!finalArrivalTime && cheonanColIdx !== undefined && cheonanColIdx < cells.length) {
-              const cheonanCell = cells.eq(cheonanColIdx);
-              const cheonanTime = extractTimeValue(cheonanCell.text());
-              if (cheonanTime) {
-                const depMinutes = parseInt(asanTime.split(':')[0]) * 60 + parseInt(asanTime.split(':')[1]);
-                const arrMinutes = parseInt(cheonanTime.split(':')[0]) * 60 + parseInt(cheonanTime.split(':')[1]);
-                if (arrMinutes > depMinutes) {
-                  finalArrivalTime = cheonanTime;
-                }
-              }
-            }
-            if (finalArrivalTime === 'X' && departureColIndices['천안역_도착'] !== undefined) {
+            
+            // 도착시간 찾기
+            let finalArrivalTime = null;
+            
+            // 천안역 도착 컬럼 확인 (우선순위)
+            if (departureColIndices['천안역_도착'] !== undefined) {
               const arrivalColIdx = departureColIndices['천안역_도착'];
               if (arrivalColIdx < cells.length) {
                 const arrivalCell = cells.eq(arrivalColIdx);
-                finalArrivalTime = extractTimeValue(arrivalCell.text());
+                const arrivalCellText = arrivalCell.text().trim();
+                const arrivalIsX = /^[XΧ]+$/i.test(arrivalCellText);
+                if (!arrivalIsX) {
+                  finalArrivalTime = extractTimeValue(arrivalCellText);
+                } else {
+                  finalArrivalTime = 'X';
+                }
               }
             }
             
-            mergeViaStops(campusViaStops, viaStopsFromNote, asanTime, finalArrivalTime || 'X');
-            mergeViaStops(campusViaStops, viaStopsFromColumns, asanTime, finalArrivalTime || 'X');
+            // 천안역 출발 컬럼 확인 (도착 컬럼이 없거나 X인 경우)
             if (!finalArrivalTime && cheonanColIdx !== undefined && cheonanColIdx < cells.length) {
               const cheonanCell = cells.eq(cheonanColIdx);
-              const cheonanTime = extractTimeValue(cheonanCell.text());
-              // 천안역 출발 시간이 있고, 출발 시간보다 늦으면 도착 시간으로 사용
-              if (cheonanTime) {
-                const depMinutes = parseInt(asanTime.split(':')[0]) * 60 + parseInt(asanTime.split(':')[1]);
-                const arrMinutes = parseInt(cheonanTime.split(':')[0]) * 60 + parseInt(cheonanTime.split(':')[1]);
-                if (arrMinutes > depMinutes) {
-                  finalArrivalTime = cheonanTime;
+              const cheonanCellText = cheonanCell.text().trim();
+              const cheonanIsX = /^[XΧ]+$/i.test(cheonanCellText);
+              if (cheonanIsX) {
+                finalArrivalTime = 'X';
+              } else {
+                const cheonanTime = extractTimeValue(cheonanCellText);
+                if (cheonanTime) {
+                  const depMinutes = parseInt(asanTime.split(':')[0]) * 60 + parseInt(asanTime.split(':')[1]);
+                  const arrMinutes = parseInt(cheonanTime.split(':')[0]) * 60 + parseInt(cheonanTime.split(':')[1]);
+                  if (arrMinutes > depMinutes) {
+                    finalArrivalTime = cheonanTime;
+                  } else {
+                    finalArrivalTime = 'X';
+                  }
                 }
               }
             }
-            if (finalArrivalTime === 'X' && departureColIndices['천안역_도착'] !== undefined) {
-              const arrivalColIdx = departureColIndices['천안역_도착'];
-              if (arrivalColIdx < cells.length) {
-                const arrivalCell = cells.eq(arrivalColIdx);
-                finalArrivalTime = extractTimeValue(arrivalCell.text());
+            
+            // columnMap.arrival 확인
+            if (!finalArrivalTime && columnMap.arrival !== undefined && columnMap.arrival < cells.length) {
+              const arrivalCell = cells.eq(columnMap.arrival);
+              const arrivalCellText = arrivalCell.text().trim();
+              const arrivalIsX = /^[XΧ]+$/i.test(arrivalCellText);
+              if (arrivalIsX) {
+                finalArrivalTime = 'X';
+              } else {
+                finalArrivalTime = extractTimeValue(arrivalCellText);
               }
             }
             
@@ -1345,7 +1735,7 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
               fridayOperates,
               dayType,
               note: noteText || '',
-              viaStops: campusViaStops,
+              viaStops: [], // 아산캠퍼스 → 천안역: 경유지 없음
               studentHallBoardingAvailable: hasHighlight(asanCell),
               sourceUrl: CRAWL_URLS[dayType]?.[expectedDeparture] || ''
             });
@@ -1354,23 +1744,336 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
 
         if (cheonanColIdx !== undefined && cheonanColIdx < cells.length) {
           const cheonanCell = cells.eq(cheonanColIdx);
-          const cheonanTime = extractTimeValue(cheonanCell.text());
-          if (cheonanTime) {
+          const cheonanCellText = cheonanCell.text().trim();
+          const cheonanIsX = /^[XΧ]+$/i.test(cheonanCellText);
+          // "X"인 경우에는 시간을 추출하지 않음
+          const cheonanTime = cheonanIsX ? null : extractTimeValue(cheonanCellText);
+          
+          // 천안역 출발 시간이 있거나 "X"인 경우 처리
+          // "X"인 경우에도 중간 경유지에 시간이 있거나 도착 시간이 있으면 스케줄 생성
+          // 도착 시간 확인 (용암마을, 하이렉스파 건너편, 아산캠퍼스_도착 등)
+          let hasArrivalTime = false;
+          if (departureColIndices['용암마을'] !== undefined) {
+            const yongamIdx = departureColIndices['용암마을'];
+            if (yongamIdx < cells.length) {
+              const yongamCell = cells.eq(yongamIdx);
+              const yongamTime = extractTimeValue(yongamCell.text());
+              if (yongamTime) hasArrivalTime = true;
+            }
+          }
+          if (!hasArrivalTime && departureColIndices['하이렉스파 건너편'] !== undefined) {
+            const hairexIdx = departureColIndices['하이렉스파 건너편'];
+            if (hairexIdx < cells.length) {
+              const hairexCell = cells.eq(hairexIdx);
+              const hairexTime = extractTimeValue(hairexCell.text());
+              if (hairexTime) hasArrivalTime = true;
+            }
+          }
+          if (!hasArrivalTime && departureColIndices['아산캠퍼스_도착'] !== undefined) {
+            const campusArrivalIdx = departureColIndices['아산캠퍼스_도착'];
+            if (campusArrivalIdx < cells.length) {
+              const campusArrivalCell = cells.eq(campusArrivalIdx);
+              const campusArrivalTime = extractTimeValue(campusArrivalCell.text());
+              if (campusArrivalTime) hasArrivalTime = true;
+            }
+          }
+          
+          if (cheonanTime || cheonanIsX || (cheonanIsX && hasArrivalTime)) {
+            // 천안역 출발이 "X"인 경우, "X"로 저장 (추정하지 않음)
+            let actualDepartureTime = cheonanTime || (cheonanIsX ? 'X' : null);
+            
+            // baseTime을 설정 (천안역 출발이 "X"인 경우 첫 번째 경유지 시간 사용)
+            let baseTimeForCheonan = cheonanTime;
+            
+            // 천안역 출발이 "X"이고 중간 경유지에 시간이 있는 경우
+            if (cheonanIsX && !cheonanTime && intermediateEntries.length > 0) {
+              // 경유지 순서: 용암마을이 첫 번째 경유지
+              const sortedViaEntries = intermediateEntries.sort((a, b) => a[1] - b[1]);
+              
+              // 용암마을이 첫 번째 경유지인지 확인
+              const yongamEntry = sortedViaEntries.find(([name]) => name === '용암마을');
+              if (yongamEntry && yongamEntry[1] < cells.length) {
+                const yongamCell = cells.eq(yongamEntry[1]);
+                const yongamText = yongamCell.text().trim();
+                const yongamTime = extractTimeValue(yongamText);
+                
+                // 용암마을 시간이 있으면 baseTime으로 사용
+                if (yongamTime) {
+                  baseTimeForCheonan = yongamTime;
+                } else {
+                  // 용암마을 시간이 없으면 첫 번째 경유지 시간 사용
+                  const firstViaEntry = sortedViaEntries[0];
+                  if (firstViaEntry && firstViaEntry[1] < cells.length) {
+                    const firstViaCell = cells.eq(firstViaEntry[1]);
+                    const firstViaText = firstViaCell.text().trim();
+                    const firstViaTime = extractTimeValue(firstViaText);
+                    
+                    if (firstViaTime) {
+                      baseTimeForCheonan = firstViaTime;
+                    }
+                  }
+                }
+              } else {
+                // 용암마을이 없으면 첫 번째 경유지 시간 사용
+                const firstViaEntry = sortedViaEntries[0];
+                if (firstViaEntry && firstViaEntry[1] < cells.length) {
+                  const firstViaCell = cells.eq(firstViaEntry[1]);
+                  const firstViaText = firstViaCell.text().trim();
+                  const firstViaTime = extractTimeValue(firstViaText);
+                  
+                  if (firstViaTime) {
+                    baseTimeForCheonan = firstViaTime;
+                  }
+                }
+              }
+            }
+            
             // 도착 시간 찾기 (천안역 → 아산캠퍼스)
-            // 용암마을 컬럼이 실제 도착시간
             let finalArrivalTime = null;
             
+            // 천안역 → 아산캠퍼스 방향 경유지 순서 정의 (명시적 순서)
+            // 용암마을이 첫 번째 경유지
+            const cheonanToCampusRouteOrder = ['용암마을', '하이렉스파 건너편'];
+            
+            // 경유지를 명시적 순서대로 정렬
+            const sortedIntermediateEntries = [];
+            for (const orderedStopName of cheonanToCampusRouteOrder) {
+              const found = intermediateEntries.find(([name]) => name === orderedStopName);
+              if (found) {
+                sortedIntermediateEntries.push(found);
+              }
+            }
+            // 명시적 순서에 없는 경유지는 컬럼 인덱스 기준으로 추가
+            for (const entry of intermediateEntries) {
+              if (!cheonanToCampusRouteOrder.includes(entry[0])) {
+                sortedIntermediateEntries.push(entry);
+              }
+            }
+            
+            // 천안역 출발 시 경유지 시간 계산
             const cheonanViaStops = [];
-            mergeViaStops(cheonanViaStops, viaStopsFromColumns, cheonanTime, finalArrivalTime || 'X');
-            mergeViaStops(cheonanViaStops, viaStopsFromNote, cheonanTime, finalArrivalTime || 'X');
-            // 용암마을 컬럼 확인
-            if (departureColIndices['용암마을'] !== undefined) {
+            let previousTimeRange = null; // 이전 경유지의 시간 범위 저장
+            
+            for (const [stopName, idx] of sortedIntermediateEntries) {
+              if (idx === undefined || idx >= cells.length) continue;
+              const cell = cells.eq(idx);
+              const rawValue = cell.text().trim();
+              
+              // "5분~10분 소요예상" 같은 텍스트가 있으면 우선적으로 파싱
+              let timeValue = null;
+              
+              // 첫 번째 경유지(용암마을)이고 출발시간이 "X"인 경우, 실제 시간을 먼저 추출
+              if (!previousTimeRange && stopName === '용암마을' && cheonanIsX && !cheonanTime && rawValue && !/^[XΧ]+$/i.test(rawValue)) {
+                // 먼저 실제 시간이 있는지 확인 (예: "08:55")
+                const directTime = extractTimeValue(rawValue);
+                if (directTime) {
+                  // 실제 시간이 있으면 그대로 사용
+                  timeValue = directTime;
+                  // 단일 시간이므로 범위 형식으로 변환하지 않음
+                }
+              }
+              
+              // "소요예상" 또는 "분~" 패턴이 있으면 무조건 범위 형식으로 파싱 (단일 시간 추출 전에 체크)
+              if (!timeValue && rawValue && !/^[XΧ]+$/i.test(rawValue)) {
+                const hasDurationPattern = rawValue.includes('소요예상') || rawValue.match(/\d+\s*분?\s*[~-]\s*\d+\s*분/);
+                
+                if (hasDurationPattern) {
+                  // rawValue에서 시간 부분을 제거하고 "5분~10분 소요예상" 부분만 추출
+                  let durationText = rawValue;
+                  durationText = durationText.replace(/\d{1,2}[:;]\d{2}/g, '').replace(/\d{4}/g, '').trim();
+                  
+                  // "5분~10분 소요예상" 패턴 찾기
+                  const durationMatch = durationText.match(/(\d+)\s*분?\s*[~-]\s*(\d+)\s*분/);
+                  if (durationMatch) {
+                    if (previousTimeRange) {
+                      // 이전 경유지가 있으면 이전 경유지 시간 범위 기준으로 계산
+                      const parsedTime = parseDurationTextForNextViaStop(durationText, previousTimeRange);
+                      if (parsedTime) {
+                        timeValue = parsedTime;
+                        previousTimeRange = parsedTime;
+                      }
+                    } else {
+                      // 첫 번째 경유지는 baseTime 기준으로 계산
+                      const baseTime = baseTimeForCheonan || cheonanTime;
+                      if (baseTime) {
+                        const parsedTime = parseDurationText(durationText, baseTime);
+                        if (parsedTime) {
+                          timeValue = parsedTime;
+                          previousTimeRange = parsedTime;
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+              
+              // 첫 번째 경유지(용암마을)이고 "소요예상" 패턴이 없으면 기본 "5분~10분 소요예상" 가정
+              if (!timeValue && !previousTimeRange && stopName === '용암마을' && rawValue && !/^[XΧ]+$/i.test(rawValue)) {
+                // 용암마을은 첫 번째 경유지이므로 기본 "5분~10분 소요예상" 적용
+                const baseTime = baseTimeForCheonan || cheonanTime;
+                if (baseTime) {
+                  const parsedTime = parseDurationText('5분~10분 소요예상', baseTime);
+                  if (parsedTime) {
+                    timeValue = parsedTime;
+                    previousTimeRange = parsedTime;
+                  }
+                }
+              }
+              
+              // parseDurationText로 파싱되지 않았고, "소요예상"이 없으면 extractTimeValue 시도
+              // 단, "소요예상"이 있으면 절대 extractTimeValue를 사용하지 않음
+              if (!timeValue && rawValue && !/^[XΧ]+$/i.test(rawValue) && !rawValue.includes('소요예상') && !rawValue.match(/\d+\s*분?\s*[~-]\s*\d+\s*분/)) {
+                timeValue = extractTimeValue(rawValue);
+                // 단일 시간이 추출되었지만, 다음 경유지 계산에는 사용할 수 없음 (범위 형식이 아니므로)
+              }
+              
+              if (timeValue) {
+                cheonanViaStops.push({
+                  name: stopName,
+                  time: timeValue,
+                  source: 'table'
+                });
+              } else {
+                // timeValue가 없으면 이전 경유지 시간 범위를 기준으로 계산 시도
+                if (previousTimeRange) {
+                  // 이전 경유지 시간 범위 기준으로 "5분~10분 소요예상" 계산
+                  const estimatedTime = parseDurationTextForNextViaStop('5분~10분 소요예상', previousTimeRange);
+                  if (estimatedTime) {
+                    cheonanViaStops.push({
+                      name: stopName,
+                      time: estimatedTime,
+                      source: 'table'
+                    });
+                    previousTimeRange = estimatedTime;
+                  } else {
+                    // 계산 실패 시 "X"로 저장
+                    cheonanViaStops.push({
+                      name: stopName,
+                      time: 'X',
+                      rawText: rawValue || null,
+                      source: 'table'
+                    });
+                  }
+                } else {
+                  // 이전 경유지 시간 범위가 없으면 "X"로 저장
+                  cheonanViaStops.push({
+                    name: stopName,
+                    time: 'X',
+                    rawText: rawValue || null,
+                    source: 'table'
+                  });
+                }
+              }
+            }
+            
+            // note에서 추출한 경유지도 추가 (시간 매핑)
+            viaStopsFromNote.forEach(viaStop => {
+              const viaColIdx = departureColIndices[viaStop.name];
+              if (viaColIdx !== undefined && viaColIdx < cells.length) {
+                const viaCell = cells.eq(viaColIdx);
+                const rawValue = viaCell.text().trim();
+                
+                // "소요예상" 또는 "분~" 패턴이 있으면 무조건 범위 형식으로 파싱
+                if (rawValue && !/^[XΧ]+$/i.test(rawValue) && (rawValue.includes('소요예상') || rawValue.match(/\d+\s*분?\s*[~-]\s*\d+\s*분/))) {
+                  let durationText = rawValue;
+                  durationText = durationText.replace(/\d{1,2}[:;]\d{2}/g, '').replace(/\d{4}/g, '').trim();
+                  
+                  const durationMatch = durationText.match(/(\d+)\s*분?\s*[~-]\s*(\d+)\s*분/);
+                  if (durationMatch) {
+                    if (previousTimeRange) {
+                      const parsedTime = parseDurationTextForNextViaStop(durationText, previousTimeRange);
+                      if (parsedTime) {
+                        viaStop.time = parsedTime;
+                        previousTimeRange = parsedTime;
+                      }
+                    } else {
+                      const parsedTime = parseDurationText(durationText, cheonanTime);
+                      if (parsedTime) {
+                        viaStop.time = parsedTime;
+                        previousTimeRange = parsedTime;
+                      }
+                    }
+                  }
+                } else {
+                  // "소요예상"이 없으면 extractTimeValue 시도
+                  const viaTime = extractTimeValue(rawValue);
+                  if (viaTime) {
+                    viaStop.time = viaTime;
+                  }
+                }
+              }
+              // 중복 체크 후 추가
+              if (!cheonanViaStops.find(v => v.name === viaStop.name)) {
+                cheonanViaStops.push(viaStop);
+              }
+            });
+            
+            // viaStopsFromNote에서 추가한 경유지도 포함하여 다시 정렬
+            // 경유지를 시간 순서대로 정렬하는 함수
+            const parseTimeForSort = (timeStr) => {
+              if (!timeStr || timeStr === 'X') return Infinity; // X는 가장 뒤로
+              if (timeStr.includes('~')) {
+                // 범위 형식: "08:15~08:30" -> 첫 번째 시간 사용
+                const firstTime = timeStr.split('~')[0].trim();
+                const [hour, min] = firstTime.split(':').map(Number);
+                return hour * 60 + min;
+              } else {
+                // 단일 시간: "08:50"
+                const [hour, min] = timeStr.split(':').map(Number);
+                return hour * 60 + min;
+              }
+            };
+            
+            // 경유지를 명시적 순서대로 정렬 (명시적 순서가 항상 우선)
+            cheonanViaStops.sort((a, b) => {
+              // 명시적 순서가 있으면 우선 적용
+              const orderA = cheonanToCampusRouteOrder.indexOf(a.name);
+              const orderB = cheonanToCampusRouteOrder.indexOf(b.name);
+              
+              // 둘 다 명시적 순서에 있으면 명시적 순서대로
+              if (orderA !== -1 && orderB !== -1) {
+                return orderA - orderB;
+              }
+              
+              // 하나만 명시적 순서에 있으면 그게 먼저
+              if (orderA !== -1) return -1;
+              if (orderB !== -1) return 1;
+              
+              // 둘 다 명시적 순서에 없으면 시간 순서로 정렬
+              const timeA = parseTimeForSort(a.time);
+              const timeB = parseTimeForSort(b.time);
+              if (timeA !== timeB) {
+                return timeA - timeB;
+              }
+              
+              // 시간이 같으면 컬럼 인덱스로 정렬
+              const idxA = departureColIndices[a.name];
+              const idxB = departureColIndices[b.name];
+              if (idxA === undefined && idxB === undefined) return 0;
+              if (idxA === undefined) return 1;
+              if (idxB === undefined) return -1;
+              return idxA - idxB;
+            });
+            
+            // 용암마을 컬럼 확인 (도착시간이 없을 경우 용암마을 시간을 도착시간으로 사용)
+            if (!finalArrivalTime && departureColIndices['용암마을'] !== undefined) {
               const yongamIdx = departureColIndices['용암마을'];
               if (yongamIdx < cells.length) {
                 const yongamCell = cells.eq(yongamIdx);
                 const yongamTime = extractTimeValue(yongamCell.text());
                 if (yongamTime) {
                   finalArrivalTime = yongamTime;
+                }
+              }
+            }
+            // 하이렉스파 건너편 컬럼 확인 (도착시간이 없을 경우 하이렉스파 건너편 시간을 도착시간으로 사용)
+            if (!finalArrivalTime && departureColIndices['하이렉스파 건너편'] !== undefined) {
+              const hairexIdx = departureColIndices['하이렉스파 건너편'];
+              if (hairexIdx < cells.length) {
+                const hairexCell = cells.eq(hairexIdx);
+                const hairexTime = extractTimeValue(hairexCell.text());
+                if (hairexTime) {
+                  finalArrivalTime = hairexTime;
                 }
               }
             }
@@ -1392,7 +2095,7 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
             schedules.push({
               departure: '천안역',
               arrival: '아산캠퍼스',
-              departureTime: cheonanTime,
+              departureTime: actualDepartureTime,
               arrivalTime: finalArrivalTime || 'X',
               fridayOperates,
               dayType,
@@ -1457,45 +2160,43 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
             ? (extractTimeValue($(cells[arrivalColIdx]).text()) || 'X')
             : 'X';
 
+        // 경유지 순서를 컬럼 인덱스 기준으로 정렬
+        const sortedIntermediateEntries = [...intermediateEntries].sort((a, b) => a[1] - b[1]);
+        
+        // 아산캠퍼스 → 천안 터미널 방향 경유지 시간 계산 (순차적으로 이전 경유지 도착 시간 기준)
+        // baseTimeForNext는 아산캠퍼스 출발 시간이 확인된 후 설정됨
+        // 이 루프는 아산캠퍼스 출발 시간 확인 전에 실행되므로, 경유지 시간은 나중에 다시 파싱됨
         const viaStopsFromColumns = [];
-        // 천안 터미널 페이지 특수 처리: 홈마트 에브리데이 컬럼은 도착시간으로 사용
-        const excludedStops = normalizedDeparture === '천안 터미널' ? ['홈마트 에브리데이'] : [];
-        for (const [stopName, idx] of intermediateEntries) {
+        let baseTimeForNext = null;
+        
+        for (const [stopName, idx] of sortedIntermediateEntries) {
           if (idx === undefined || idx >= cells.length) continue;
-          // 홈마트 에브리데이 제외
-          if (excludedStops.includes(stopName)) continue;
           const cell = cells.eq(idx);
           const rawValue = cell.text().trim();
-          const timeValue = extractTimeValue(rawValue);
+          
+          // 시간 추출 시도 (baseTimeForNext가 없어도 단일 시간은 추출 가능)
+          let timeValue = extractTimeValue(rawValue);
+          
           if (timeValue) {
             viaStopsFromColumns.push({
               name: stopName,
               time: timeValue,
               source: 'table'
             });
-          } else if (rawValue && !/^[XΧ]+$/i.test(rawValue)) {
-            // "경유"라고만 표시된 경우나 "5분~10분 소요예상" 같은 텍스트만 있는 경우
-            // 출발시간과 도착시간 사이의 시간 범위를 추정 (나중에 mergeViaStops에서 처리)
+          } else if (/^[XΧ]+$/i.test(rawValue)) {
+            viaStopsFromColumns.push({
+              name: stopName,
+              time: 'X',
+              source: 'table'
+            });
+          } else {
+            // 시간이 없으면 나중에 다시 파싱
             viaStopsFromColumns.push({
               name: stopName,
               time: null,
               rawText: rawValue,
               source: 'table'
             });
-          } else if (!rawValue || /^[XΧ]+$/i.test(rawValue)) {
-            // 빈 값이거나 X만 있는 경우에도 경유지로 추가 (시간 추정 필요)
-            // intermediateEntries에 포함되어 있다는 것은 해당 정류장이 경유지임을 의미
-            // 단, 실제로 "경유"라고 써져있지 않으면 rawText를 null로 설정
-            viaStopsFromColumns.push({
-              name: stopName,
-              time: null,
-              rawText: null,
-              source: 'table'
-            });
-          } else {
-            const viaFromCell = extractViaStopsFromText(rawValue);
-            // viaFromCell은 출발시간/도착시간 정보가 없으므로 시간 추정 불가
-            mergeViaStops(viaStopsFromColumns, viaFromCell);
           }
         }
 
@@ -1515,40 +2216,230 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
 
           if (asanColIdx !== undefined && asanColIdx < cells.length) {
           const asanCell = cells.eq(asanColIdx);
-          const asanTime = extractTimeValue(asanCell.text());
-            if (asanTime) {
-            const campusViaStops = [];
-            // 도착시간 먼저 찾기
-            let finalArrivalTime = arrivalTime;
-            if (!finalArrivalTime && terminalColIdx !== undefined && terminalColIdx < cells.length) {
-              const terminalCell = cells.eq(terminalColIdx);
-              const terminalTime = extractTimeValue(terminalCell.text());
-              // 천안 터미널 출발 시간이 있고, 출발 시간보다 늦으면 도착 시간으로 사용
-              if (terminalTime) {
-                const depMinutes = parseInt(asanTime.split(':')[0]) * 60 + parseInt(asanTime.split(':')[1]);
-                const arrMinutes = parseInt(terminalTime.split(':')[0]) * 60 + parseInt(terminalTime.split(':')[1]);
-                if (arrMinutes > depMinutes) {
-                  finalArrivalTime = terminalTime;
+          const asanCellText = asanCell.text().trim();
+          const asanTime = extractTimeValue(asanCellText);
+          const asanIsX = /^[XΧ]+$/i.test(asanCellText);
+          
+          // 아산캠퍼스 출발 시간이 있거나 "X"인 경우 처리
+          // "X"인 경우에도 중간 경유지에 시간이 있으면 스케줄 생성
+          if (asanTime || asanIsX) {
+            // 아산캠퍼스 출발이 "X"인 경우, 첫 번째 경유지 시간을 기준으로 출발 시간 추정 시도
+            let actualDepartureTime = asanTime || 'X';
+            let baseTimeForViaStops = asanTime;
+            
+            // 아산캠퍼스 출발이 "X"이고 중간 경유지에 시간이 있는 경우
+            if (asanIsX && !asanTime && intermediateEntries.length > 0) {
+              // 첫 번째 경유지 시간을 찾아서 출발 시간 추정
+              const sortedViaEntries = intermediateEntries.sort((a, b) => a[1] - b[1]);
+              const firstViaStopEntry = sortedViaEntries[0];
+              
+              if (firstViaStopEntry && firstViaStopEntry[1] < cells.length) {
+                const firstViaCell = cells.eq(firstViaStopEntry[1]);
+                const firstViaText = firstViaCell.text().trim();
+                const firstViaTime = extractTimeValue(firstViaText);
+                
+                // 첫 번째 경유지 시간이 있으면, 그 시간에서 5분을 뺀 값을 출발 시간으로 추정
+                if (firstViaTime) {
+                  const [viaHour, viaMin] = firstViaTime.split(':').map(Number);
+                  const viaMinutes = viaHour * 60 + viaMin;
+                  const estimatedDepMinutes = Math.max(0, viaMinutes - 5); // 최소 5분 전 출발 추정
+                  const estimatedDepHour = Math.floor(estimatedDepMinutes / 60) % 24;
+                  const estimatedDepMin = estimatedDepMinutes % 60;
+                  actualDepartureTime = `${String(estimatedDepHour).padStart(2, '0')}:${String(estimatedDepMin).padStart(2, '0')}`;
+                  baseTimeForViaStops = actualDepartureTime;
+                } else {
+                  // 첫 번째 경유지 시간이 없으면, 두 번째 경유지나 도착 시간을 확인
+                  // 마지막 경유지나 도착 시간을 기준으로 역산
+                  let foundTime = null;
+                  
+                  // 경유지들을 순회하면서 시간이 있는 첫 번째 경유지 찾기
+                  for (const [stopName, idx] of sortedViaEntries) {
+                    if (idx < cells.length) {
+                      const cell = cells.eq(idx);
+                      const cellText = cell.text().trim();
+                      const cellTime = extractTimeValue(cellText);
+                      if (cellTime && !/^[XΧ]+$/i.test(cellText)) {
+                        foundTime = cellTime;
+                        break;
+                      }
+                    }
+                  }
+                  
+                  // 경유지에서 시간을 찾지 못했으면 도착 시간 확인
+                  if (!foundTime && terminalColIdx !== undefined && terminalColIdx < cells.length) {
+                    const terminalCell = cells.eq(terminalColIdx);
+                    const terminalCellText = terminalCell.text().trim();
+                    const terminalTime = extractTimeValue(terminalCellText);
+                    if (terminalTime && !/^[XΧ]+$/i.test(terminalCellText)) {
+                      foundTime = terminalTime;
+                    }
+                  }
+                  
+                  // 찾은 시간에서 5분을 뺀 값을 출발 시간으로 추정
+                  if (foundTime) {
+                    const [foundHour, foundMin] = foundTime.split(':').map(Number);
+                    const foundMinutes = foundHour * 60 + foundMin;
+                    const estimatedDepMinutes = Math.max(0, foundMinutes - 5);
+                    const estimatedDepHour = Math.floor(estimatedDepMinutes / 60) % 24;
+                    const estimatedDepMin = estimatedDepMinutes % 60;
+                    actualDepartureTime = `${String(estimatedDepHour).padStart(2, '0')}:${String(estimatedDepMin).padStart(2, '0')}`;
+                    baseTimeForViaStops = actualDepartureTime;
+                  }
                 }
               }
             }
+            
+            // 아산캠퍼스 → 천안 터미널 방향 경유지 순서 정의 (명시적 순서)
+            const terminalRouteOrder = ['홈마트 에브리데이', '두정동 맥도날드', '서울대정병원'];
+            
+            // 경유지를 명시적 순서대로 정렬
+            const sortedIntermediateEntriesForCampus = [];
+            for (const orderedStopName of terminalRouteOrder) {
+              const found = intermediateEntries.find(([name]) => name === orderedStopName);
+              if (found) {
+                sortedIntermediateEntriesForCampus.push(found);
+              }
+            }
+            // 명시적 순서에 없는 경유지는 컬럼 인덱스 기준으로 추가
+            for (const entry of intermediateEntries) {
+              if (!terminalRouteOrder.includes(entry[0])) {
+                sortedIntermediateEntriesForCampus.push(entry);
+              }
+            }
+            // 나머지는 컬럼 인덱스 기준으로 정렬
+            sortedIntermediateEntriesForCampus.sort((a, b) => {
+              const orderA = terminalRouteOrder.indexOf(a[0]);
+              const orderB = terminalRouteOrder.indexOf(b[0]);
+              if (orderA !== -1 && orderB !== -1) return orderA - orderB;
+              if (orderA !== -1) return -1;
+              if (orderB !== -1) return 1;
+              return a[1] - b[1];
+            });
+            
+            // 아산캠퍼스 → 천안 터미널 방향: 경유지 시간 계산
+            // 출발 시간이 정상인 경우에도 경유지 시간을 제대로 파싱해야 함
+            const campusViaStops = [];
+            
+            // baseTimeForNext를 아산캠퍼스 출발 시간으로 설정 (경유지 시간 계산용)
+            if (actualDepartureTime && actualDepartureTime !== 'X') {
+              baseTimeForNext = actualDepartureTime;
+            } else if (baseTimeForViaStops) {
+              baseTimeForNext = baseTimeForViaStops;
+            }
+            
+            // sortedIntermediateEntriesForCampus는 이미 위에서 정의됨
+            // baseTimeForNext가 설정된 경우, 경유지 시간을 다시 파싱
+            let previousTimeRange = null;
+            for (const [stopName, idx] of sortedIntermediateEntriesForCampus) {
+              if (idx === undefined || idx >= cells.length) continue;
+              const cell = cells.eq(idx);
+              const rawValue = cell.text().trim();
+              
+              let timeValue = null;
+              
+              // "소요예상" 또는 "분~" 패턴이 있으면 parseDurationText 우선 사용
+              if (rawValue && !/^[XΧ]+$/i.test(rawValue)) {
+                const hasDurationPattern = rawValue.includes('소요예상') || rawValue.match(/\d+\s*분?\s*[~-]\s*\d+\s*분/);
+                
+                if (hasDurationPattern) {
+                  let durationText = rawValue;
+                  durationText = durationText.replace(/\d{1,2}[:;]\d{2}/g, '').replace(/\d{4}/g, '').trim();
+                  
+                  if (previousTimeRange) {
+                    timeValue = parseDurationTextForNextViaStop(durationText, previousTimeRange);
+                    if (timeValue) previousTimeRange = timeValue;
+                  } else if (baseTimeForNext) {
+                    timeValue = parseDurationText(durationText, baseTimeForNext);
+                    if (timeValue) previousTimeRange = timeValue;
+                  }
+                }
+              }
+              
+              // parseDurationText로 파싱되지 않았으면 extractTimeValue 시도
+              if (!timeValue) {
+                timeValue = extractTimeValue(rawValue);
+                if (timeValue) {
+                  previousTimeRange = timeValue;
+                }
+              }
+              
+              if (timeValue) {
+                campusViaStops.push({
+                  name: stopName,
+                  time: timeValue,
+                  source: 'table'
+                });
+              } else if (/^[XΧ]+$/i.test(rawValue)) {
+                campusViaStops.push({
+                  name: stopName,
+                  time: 'X',
+                  source: 'table'
+                });
+              }
+            }
+            
+            // 도착시간 먼저 찾기 (아산캠퍼스 → 천안 터미널)
+            let finalArrivalTime = arrivalTime;
+            
+            // 1. 터미널 컬럼 확인 (아산캠퍼스 출발 시 터미널 도착 시간)
+            if (terminalColIdx !== undefined && terminalColIdx < cells.length) {
+              const terminalCell = cells.eq(terminalColIdx);
+              const terminalCellText = terminalCell.text().trim();
+              
+              // "X"로 표시된 경우 "X"로 저장
+              if (/^[XΧ]+$/i.test(terminalCellText)) {
+                finalArrivalTime = 'X';
+              } else {
+                // 시간이 있는 경우 파싱
+                const terminalTime = extractTimeValue(terminalCellText);
+                if (terminalTime) {
+                  // 출발 시간이 "X"인 경우도 처리
+                  if (actualDepartureTime === 'X') {
+                    finalArrivalTime = terminalTime;
+                  } else {
+                    const depMinutes = parseInt(actualDepartureTime.split(':')[0]) * 60 + parseInt(actualDepartureTime.split(':')[1]);
+                    const arrMinutes = parseInt(terminalTime.split(':')[0]) * 60 + parseInt(terminalTime.split(':')[1]);
+                    // 같은 날 내에서 시간 비교 (자정 넘어가는 경우 고려)
+                    if (arrMinutes >= depMinutes || arrMinutes < depMinutes - 720) {
+                      finalArrivalTime = terminalTime;
+                    } else {
+                      // 출발 시간보다 이전이면 "X"로 저장
+                      finalArrivalTime = 'X';
+                    }
+                  }
+                } else {
+                  // 시간을 파싱할 수 없으면 "X"로 저장
+                  finalArrivalTime = 'X';
+                }
+              }
+            }
+            
+            // 2. 천안 터미널_도착 컬럼 확인
             if (!finalArrivalTime && departureColIndices['천안 터미널_도착'] !== undefined) {
               const arrivalColIdx = departureColIndices['천안 터미널_도착'];
               if (arrivalColIdx < cells.length) {
                 const arrivalCell = cells.eq(arrivalColIdx);
-                finalArrivalTime = extractTimeValue(arrivalCell.text());
+                const arrivalTime = extractTimeValue(arrivalCell.text());
+                if (arrivalTime && !/^[XΧ]+$/i.test(arrivalCell.text().trim())) {
+                  finalArrivalTime = arrivalTime;
+                }
               }
             }
             
-            // 경유지 시간 추정
-            mergeViaStops(campusViaStops, viaStopsFromNote, asanTime, finalArrivalTime || 'X');
-            mergeViaStops(campusViaStops, viaStopsFromColumns, asanTime, finalArrivalTime || 'X');
+            // 3. columnMap.arrival 확인
+            if (!finalArrivalTime && columnMap.arrival !== undefined && columnMap.arrival < cells.length) {
+              const arrivalCell = cells.eq(columnMap.arrival);
+              const arrivalTime = extractTimeValue(arrivalCell.text());
+              if (arrivalTime && !/^[XΧ]+$/i.test(arrivalCell.text().trim())) {
+                finalArrivalTime = arrivalTime;
+              }
+            }
             
             // 도착시간이 없으면 X로 저장
             schedules.push({
               departure: '아산캠퍼스',
               arrival: '천안 터미널',
-              departureTime: asanTime,
+              departureTime: actualDepartureTime,
               arrivalTime: finalArrivalTime || 'X',
               fridayOperates,
               dayType,
@@ -1562,23 +2453,337 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
 
           if (terminalColIdx !== undefined && terminalColIdx < cells.length) {
           const terminalCell = cells.eq(terminalColIdx);
-          const terminalTime = extractTimeValue(terminalCell.text());
-            if (terminalTime) {
+          const terminalCellText = terminalCell.text().trim();
+          const terminalIsX = /^[XΧ]+$/i.test(terminalCellText);
+          // "X"인 경우에는 시간을 추출하지 않음
+          const terminalTime = terminalIsX ? null : extractTimeValue(terminalCellText);
+          
+          // 천안 터미널 출발 시간이 있거나 "X"인 경우 처리
+          // "X"인 경우에도 중간 경유지에 시간이 있거나 도착 시간이 있으면 스케줄 생성
+          // 도착 시간 확인 (홈마트 에브리데이, 서울대정병원, 아산캠퍼스_도착 등)
+          let hasArrivalTime = false;
+          if (departureColIndices['홈마트 에브리데이'] !== undefined) {
+            const homeMartIdx = departureColIndices['홈마트 에브리데이'];
+            if (homeMartIdx < cells.length) {
+              const homeMartCell = cells.eq(homeMartIdx);
+              const homeMartTime = extractTimeValue(homeMartCell.text());
+              if (homeMartTime) hasArrivalTime = true;
+            }
+          }
+          if (!hasArrivalTime && departureColIndices['서울대정병원'] !== undefined) {
+            const seoulHospitalIdx = departureColIndices['서울대정병원'];
+            if (seoulHospitalIdx < cells.length) {
+              const seoulHospitalCell = cells.eq(seoulHospitalIdx);
+              const seoulHospitalTime = extractTimeValue(seoulHospitalCell.text());
+              if (seoulHospitalTime) hasArrivalTime = true;
+            }
+          }
+          if (!hasArrivalTime && departureColIndices['아산캠퍼스_도착'] !== undefined) {
+            const campusArrivalIdx = departureColIndices['아산캠퍼스_도착'];
+            if (campusArrivalIdx < cells.length) {
+              const campusArrivalCell = cells.eq(campusArrivalIdx);
+              const campusArrivalTime = extractTimeValue(campusArrivalCell.text());
+              if (campusArrivalTime) hasArrivalTime = true;
+            }
+          }
+          
+          if (terminalTime || terminalIsX || (terminalIsX && hasArrivalTime)) {
+            // 천안 터미널 출발이 "X"인 경우, "X"로 저장 (추정하지 않음)
+            let actualDepartureTime = terminalTime || (terminalIsX ? 'X' : null);
+            
+            // baseTime을 설정 (천안 터미널 출발이 "X"인 경우 첫 번째 경유지 시간 사용)
+            let baseTimeForTerminal = terminalTime;
+            
+            // 천안 터미널 출발이 "X"이고 중간 경유지에 시간이 있는 경우
+            if (terminalIsX && !terminalTime && intermediateEntries.length > 0) {
+              // 경유지 순서: 두정동 맥도날드가 첫 번째 경유지
+              const sortedViaEntries = intermediateEntries.sort((a, b) => a[1] - b[1]);
+              
+              // 두정동 맥도날드가 첫 번째 경유지인지 확인
+              const mcdonaldEntry = sortedViaEntries.find(([name]) => name === '두정동 맥도날드');
+              if (mcdonaldEntry && mcdonaldEntry[1] < cells.length) {
+                const mcdonaldCell = cells.eq(mcdonaldEntry[1]);
+                const mcdonaldText = mcdonaldCell.text().trim();
+                const mcdonaldTime = extractTimeValue(mcdonaldText);
+                
+                // 두정동 맥도날드 시간이 있으면 baseTime으로 사용
+                if (mcdonaldTime) {
+                  baseTimeForTerminal = mcdonaldTime;
+                } else {
+                  // 두정동 맥도날드 시간이 없으면 첫 번째 경유지 시간 사용
+                  const firstViaEntry = sortedViaEntries[0];
+                  if (firstViaEntry && firstViaEntry[1] < cells.length) {
+                    const firstViaCell = cells.eq(firstViaEntry[1]);
+                    const firstViaText = firstViaCell.text().trim();
+                    const firstViaTime = extractTimeValue(firstViaText);
+                    
+                    if (firstViaTime) {
+                      baseTimeForTerminal = firstViaTime;
+                    }
+                  }
+                }
+              } else {
+                // 두정동 맥도날드가 없으면 첫 번째 경유지 시간 사용
+                const firstViaEntry = sortedViaEntries[0];
+                if (firstViaEntry && firstViaEntry[1] < cells.length) {
+                  const firstViaCell = cells.eq(firstViaEntry[1]);
+                  const firstViaText = firstViaCell.text().trim();
+                  const firstViaTime = extractTimeValue(firstViaText);
+                  
+                  if (firstViaTime) {
+                    baseTimeForTerminal = firstViaTime;
+                  }
+                }
+              }
+            }
             // 도착 시간 찾기 (천안 터미널 → 아산캠퍼스)
-            // 홈마트 에브리데이 컬럼이 실제 도착시간
             let finalArrivalTime = null;
             
+            // 천안 터미널 → 아산캠퍼스 방향 경유지 순서 정의 (명시적 순서)
+            // 두정동 맥도날드가 첫 번째 경유지
+            const terminalToCampusRouteOrder = ['두정동 맥도날드', '홈마트 에브리데이', '서울대정병원'];
+            
+            // 경유지를 명시적 순서대로 정렬
+            const sortedIntermediateEntries = [];
+            for (const orderedStopName of terminalToCampusRouteOrder) {
+              const found = intermediateEntries.find(([name]) => name === orderedStopName);
+              if (found) {
+                sortedIntermediateEntries.push(found);
+              }
+            }
+            // 명시적 순서에 없는 경유지는 컬럼 인덱스 기준으로 추가
+            for (const entry of intermediateEntries) {
+              if (!terminalToCampusRouteOrder.includes(entry[0])) {
+                sortedIntermediateEntries.push(entry);
+              }
+            }
+            
+            // 천안 터미널 출발 시 경유지 시간 계산
+            // 첫 번째 경유지: baseTime + 5분 ~ baseTime + 20분
+            // 두 번째 경유지: (첫 번째 최소 시간) + 5분 ~ (첫 번째 최대 시간) + 20분
             const terminalViaStops = [];
-            mergeViaStops(terminalViaStops, viaStopsFromColumns, terminalTime, finalArrivalTime || 'X');
-            mergeViaStops(terminalViaStops, viaStopsFromNote, terminalTime, finalArrivalTime || 'X');
-            // 홈마트 에브리데이 컬럼 확인
-            if (departureColIndices['홈마트 에브리데이'] !== undefined) {
+            let previousTimeRange = null; // 이전 경유지의 시간 범위 저장
+            
+            for (const [stopName, idx] of sortedIntermediateEntries) {
+              if (idx === undefined || idx >= cells.length) continue;
+              const cell = cells.eq(idx);
+              const rawValue = cell.text().trim();
+              
+              // "5분~20분 소요예상" 같은 텍스트가 있으면 우선적으로 파싱
+              let timeValue = null;
+              
+              // 첫 번째 경유지(두정동 맥도날드)이고 출발시간이 "X"인 경우, 실제 시간을 먼저 추출
+              if (!previousTimeRange && stopName === '두정동 맥도날드' && terminalIsX && !terminalTime && rawValue && !/^[XΧ]+$/i.test(rawValue)) {
+                // 먼저 실제 시간이 있는지 확인 (예: "08:55")
+                const directTime = extractTimeValue(rawValue);
+                if (directTime) {
+                  // 실제 시간이 있으면 그대로 사용
+                  timeValue = directTime;
+                  // 단일 시간이므로 범위 형식으로 변환하지 않음
+                }
+              }
+              
+              // "소요예상" 또는 "분~" 패턴이 있으면 무조건 범위 형식으로 파싱 (단일 시간 추출 전에 체크)
+              if (!timeValue && rawValue && !/^[XΧ]+$/i.test(rawValue)) {
+                const hasDurationPattern = rawValue.includes('소요예상') || rawValue.match(/\d+\s*분?\s*[~-]\s*\d+\s*분/);
+                
+                if (hasDurationPattern) {
+                  // rawValue에서 시간 부분을 제거하고 "5분~20분 소요예상" 부분만 추출
+                  let durationText = rawValue;
+                  durationText = durationText.replace(/\d{1,2}[:;]\d{2}/g, '').replace(/\d{4}/g, '').trim();
+                  
+                  // "5분~20분 소요예상" 패턴 찾기
+                  const durationMatch = durationText.match(/(\d+)\s*분?\s*[~-]\s*(\d+)\s*분/);
+                  if (durationMatch) {
+                    if (previousTimeRange) {
+                      // 이전 경유지가 있으면 이전 경유지 시간 범위 기준으로 계산
+                      const parsedTime = parseDurationTextForNextViaStop(durationText, previousTimeRange);
+                      if (parsedTime) {
+                        timeValue = parsedTime;
+                        previousTimeRange = parsedTime;
+                      }
+                    } else {
+                      // 첫 번째 경유지는 baseTime 기준으로 계산
+                      const baseTime = baseTimeForTerminal || terminalTime;
+                      if (baseTime) {
+                        const parsedTime = parseDurationText(durationText, baseTime);
+                        if (parsedTime) {
+                          timeValue = parsedTime;
+                          previousTimeRange = parsedTime;
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+              
+              // 첫 번째 경유지(두정동 맥도날드)이고 "소요예상" 패턴이 없으면 기본 "5분~20분 소요예상" 가정
+              if (!timeValue && !previousTimeRange && stopName === '두정동 맥도날드' && rawValue && !/^[XΧ]+$/i.test(rawValue)) {
+                // 두정동 맥도날드는 첫 번째 경유지이므로 기본 "5분~20분 소요예상" 적용
+                const baseTime = baseTimeForTerminal || terminalTime;
+                if (baseTime) {
+                  const parsedTime = parseDurationText('5분~20분 소요예상', baseTime);
+                  if (parsedTime) {
+                    timeValue = parsedTime;
+                    previousTimeRange = parsedTime;
+                  }
+                }
+              }
+              
+              // parseDurationText로 파싱되지 않았고, "소요예상"이 없으면 extractTimeValue 시도
+              // 단, "소요예상"이 있으면 절대 extractTimeValue를 사용하지 않음
+              if (!timeValue && rawValue && !/^[XΧ]+$/i.test(rawValue) && !rawValue.includes('소요예상') && !rawValue.match(/\d+\s*분?\s*[~-]\s*\d+\s*분/)) {
+                timeValue = extractTimeValue(rawValue);
+                // 단일 시간이 추출되었지만, 다음 경유지 계산에는 사용할 수 없음 (범위 형식이 아니므로)
+              }
+              
+              if (timeValue) {
+                terminalViaStops.push({
+                  name: stopName,
+                  time: timeValue,
+                  source: 'table'
+                });
+              } else {
+                // timeValue가 없으면 이전 경유지 시간 범위를 기준으로 계산 시도
+                if (previousTimeRange) {
+                  // 이전 경유지 시간 범위 기준으로 "5분~20분 소요예상" 계산
+                  const estimatedTime = parseDurationTextForNextViaStop('5분~20분 소요예상', previousTimeRange);
+                  if (estimatedTime) {
+                    terminalViaStops.push({
+                      name: stopName,
+                      time: estimatedTime,
+                      source: 'table'
+                    });
+                    previousTimeRange = estimatedTime;
+                  } else {
+                    // 계산 실패 시 "X"로 저장
+                    terminalViaStops.push({
+                      name: stopName,
+                      time: 'X',
+                      rawText: rawValue || null,
+                      source: 'table'
+                    });
+                  }
+                } else {
+                  // 이전 경유지 시간 범위가 없으면 "X"로 저장
+                  terminalViaStops.push({
+                    name: stopName,
+                    time: 'X',
+                    rawText: rawValue || null,
+                    source: 'table'
+                  });
+                }
+              }
+            }
+            
+            // note에서 추출한 경유지도 추가 (시간 매핑)
+            viaStopsFromNote.forEach(viaStop => {
+              const viaColIdx = departureColIndices[viaStop.name];
+              if (viaColIdx !== undefined && viaColIdx < cells.length) {
+                const viaCell = cells.eq(viaColIdx);
+                const rawValue = viaCell.text().trim();
+                
+                // "소요예상" 또는 "분~" 패턴이 있으면 무조건 범위 형식으로 파싱
+                if (rawValue && !/^[XΧ]+$/i.test(rawValue) && (rawValue.includes('소요예상') || rawValue.match(/\d+\s*분?\s*[~-]\s*\d+\s*분/))) {
+                  let durationText = rawValue;
+                  durationText = durationText.replace(/\d{1,2}[:;]\d{2}/g, '').replace(/\d{4}/g, '').trim();
+                  
+                  const durationMatch = durationText.match(/(\d+)\s*분?\s*[~-]\s*(\d+)\s*분/);
+                  if (durationMatch) {
+                    if (previousTimeRange) {
+                      const parsedTime = parseDurationTextForNextViaStop(durationText, previousTimeRange);
+                      if (parsedTime) {
+                        viaStop.time = parsedTime;
+                        previousTimeRange = parsedTime;
+                      }
+                    } else {
+                      const parsedTime = parseDurationText(durationText, terminalTime);
+                      if (parsedTime) {
+                        viaStop.time = parsedTime;
+                        previousTimeRange = parsedTime;
+                      }
+                    }
+                  }
+                } else {
+                  // "소요예상"이 없으면 extractTimeValue 시도
+                  const viaTime = extractTimeValue(rawValue);
+                  if (viaTime) {
+                    viaStop.time = viaTime;
+                  }
+                }
+              }
+              // 중복 체크 후 추가
+              if (!terminalViaStops.find(v => v.name === viaStop.name)) {
+                terminalViaStops.push(viaStop);
+              }
+            });
+            
+            // viaStopsFromNote에서 추가한 경유지도 포함하여 다시 정렬
+            // 경유지를 시간 순서대로 정렬하는 함수
+            const parseTimeForSort = (timeStr) => {
+              if (!timeStr || timeStr === 'X') return Infinity; // X는 가장 뒤로
+              if (timeStr.includes('~')) {
+                // 범위 형식: "08:15~08:30" -> 첫 번째 시간 사용
+                const firstTime = timeStr.split('~')[0].trim();
+                const [hour, min] = firstTime.split(':').map(Number);
+                return hour * 60 + min;
+              } else {
+                // 단일 시간: "08:50"
+                const [hour, min] = timeStr.split(':').map(Number);
+                return hour * 60 + min;
+              }
+            };
+            
+            // 경유지를 명시적 순서대로 정렬 (명시적 순서가 항상 우선)
+            terminalViaStops.sort((a, b) => {
+              // 명시적 순서가 있으면 우선 적용
+              const orderA = terminalToCampusRouteOrder.indexOf(a.name);
+              const orderB = terminalToCampusRouteOrder.indexOf(b.name);
+              
+              // 둘 다 명시적 순서에 있으면 명시적 순서대로
+              if (orderA !== -1 && orderB !== -1) {
+                return orderA - orderB;
+              }
+              
+              // 하나만 명시적 순서에 있으면 그게 먼저
+              if (orderA !== -1) return -1;
+              if (orderB !== -1) return 1;
+              
+              // 둘 다 명시적 순서에 없으면 시간 순서로 정렬
+              const timeA = parseTimeForSort(a.time);
+              const timeB = parseTimeForSort(b.time);
+              if (timeA !== timeB) {
+                return timeA - timeB;
+              }
+              
+              // 시간이 같으면 컬럼 인덱스로 정렬
+              const idxA = departureColIndices[a.name];
+              const idxB = departureColIndices[b.name];
+              if (idxA === undefined && idxB === undefined) return 0;
+              if (idxA === undefined) return 1;
+              if (idxB === undefined) return -1;
+              return idxA - idxB;
+            });
+            
+            // 홈마트 에브리데이 컬럼 확인 (도착시간이 없을 경우 홈마트 에브리데이 시간을 도착시간으로 사용)
+            if (!finalArrivalTime && departureColIndices['홈마트 에브리데이'] !== undefined) {
               const homeMartIdx = departureColIndices['홈마트 에브리데이'];
               if (homeMartIdx < cells.length) {
                 const homeMartCell = cells.eq(homeMartIdx);
                 const homeMartTime = extractTimeValue(homeMartCell.text());
                 if (homeMartTime) {
                   finalArrivalTime = homeMartTime;
+                }
+              }
+            }
+            // 서울대정병원 컬럼 확인 (도착시간이 없을 경우 서울대정병원 시간을 도착시간으로 사용)
+            if (!finalArrivalTime && departureColIndices['서울대정병원'] !== undefined) {
+              const seoulHospitalIdx = departureColIndices['서울대정병원'];
+              if (seoulHospitalIdx < cells.length) {
+                const seoulHospitalCell = cells.eq(seoulHospitalIdx);
+                const seoulHospitalTime = extractTimeValue(seoulHospitalCell.text());
+                if (seoulHospitalTime) {
+                  finalArrivalTime = seoulHospitalTime;
                 }
               }
             }
@@ -1596,15 +2801,11 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
               finalArrivalTime = extractTimeValue(arrivalCell.text());
             }
             
-            // 경유지 시간 추정
-            mergeViaStops(terminalViaStops, viaStopsFromColumns, terminalTime, finalArrivalTime || 'X');
-            mergeViaStops(terminalViaStops, viaStopsFromNote, terminalTime, finalArrivalTime || 'X');
-            
             // 도착시간이 없으면 X로 저장
             schedules.push({
               departure: '천안 터미널',
               arrival: '아산캠퍼스',
-              departureTime: terminalTime,
+              departureTime: actualDepartureTime,
               arrivalTime: finalArrivalTime || 'X',
               fridayOperates,
               dayType,
@@ -1613,8 +2814,8 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
               studentHallBoardingAvailable: hasHighlight(terminalCell),
               sourceUrl: CRAWL_URLS[dayType]?.[expectedDeparture] || ''
             });
+            }
           }
-        }
         }
 
         return;
@@ -1929,7 +3130,6 @@ async function crawlSingleUrl(dayType, departure, url) {
 // 모든 시간표 크롤링 (병렬 처리로 빠른 크롤링, 강제 타임아웃)
 async function crawlAllSchedules(maxTime = 90000) {
   console.log('=== 셔틀버스 시간표 전체 크롤링 시작 ===');
-  console.log(`[DEBUG] crawlAllSchedules 호출됨, maxTime: ${maxTime}ms`);
   
   const startTime = Date.now();
   
@@ -2039,7 +3239,38 @@ async function crawlAllSchedules(maxTime = 90000) {
 
 // DB 시간표 저장 (타임아웃 적용)
 async function saveSchedulesToDB(schedules, maxTime = 30000) {
-  console.log(`\nDB 저장 시작: ${schedules.length}개 시간표...`);
+  // 권곡초 버스정류장을 도착지로 가진 스케줄 필터링
+  const filteredSchedules = schedules.filter(schedule => {
+    if (schedule.arrival === '권곡초 버스정류장' || (schedule.arrival && schedule.arrival.includes('권곡'))) {
+      return false;
+    }
+    return true;
+  });
+  
+  // 메모리에서 중복 제거 (departure, arrival, departureTime, arrivalTime, dayType 기준)
+  const uniqueSchedules = [];
+  const seenKeys = new Set();
+  for (const schedule of filteredSchedules) {
+    const key = `${schedule.departure}|${schedule.arrival}|${schedule.departureTime}|${schedule.arrivalTime}|${schedule.dayType}`;
+    if (!seenKeys.has(key)) {
+      seenKeys.add(key);
+      uniqueSchedules.push(schedule);
+    }
+  }
+  
+  console.log(`\nDB 저장 시작: ${uniqueSchedules.length}개 시간표 (${schedules.length - filteredSchedules.length}개 필터링됨: 권곡초 도착지 제외, ${filteredSchedules.length - uniqueSchedules.length}개 중복 제거)...`);
+  
+  // 기존 DB에서 권곡초 도착지 스케줄 삭제
+  try {
+    const deletedCount = await ShuttleBus.deleteMany({
+      arrival: { $in: ['권곡초 버스정류장', /권곡/] }
+    });
+    if (deletedCount > 0) {
+      console.log(`기존 권곡초 도착지 스케줄 ${deletedCount}개 삭제됨`);
+    }
+  } catch (error) {
+    console.warn('권곡초 도착지 스케줄 삭제 중 오류:', error.message);
+  }
   
   const startTime = Date.now();
   let savedCount = 0;
@@ -2066,14 +3297,15 @@ async function saveSchedulesToDB(schedules, maxTime = 30000) {
         break;
       }
       
-      const batch = schedules.slice(i, i + BATCH_SIZE);
+      const batch = uniqueSchedules.slice(i, i + BATCH_SIZE);
       const promises = batch.map(async (schedule) => {
         try {
-          // 먼저 정확히 일치하는 레코드 찾기
+          // 먼저 정확히 일치하는 레코드 찾기 (arrivalTime도 포함)
           let existing = await ShuttleBus.findOne({
             departure: schedule.departure,
             arrival: schedule.arrival,
             departureTime: schedule.departureTime,
+            arrivalTime: schedule.arrivalTime,
             dayType: schedule.dayType
           });
           
@@ -2101,6 +3333,7 @@ async function saveSchedulesToDB(schedules, maxTime = 30000) {
                 departure: schedule.departure,
                 arrival: schedule.arrival,
                 departureTime: schedule.departureTime,
+                arrivalTime: schedule.arrivalTime,
                 dayType: schedule.dayType
               },
               {
@@ -2152,9 +3385,17 @@ async function saveRoutePaths(schedules) {
   try {
     console.log('\n경로 좌표 계산 및 저장 시작...');
     
+    // 권곡초 버스정류장을 도착지로 가진 스케줄 필터링
+    const filteredSchedules = schedules.filter(schedule => {
+      if (schedule.arrival === '권곡초 버스정류장' || (schedule.arrival && schedule.arrival.includes('권곡'))) {
+        return false;
+      }
+      return true;
+    });
+    
     const routeMap = new Map();
     
-    for (const schedule of schedules) {
+    for (const schedule of filteredSchedules) {
       const departure = schedule.departure;
       const arrival = schedule.arrival;
       const viaStops = schedule.viaStops || [];

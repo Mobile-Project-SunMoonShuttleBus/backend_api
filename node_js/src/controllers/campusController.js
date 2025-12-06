@@ -251,6 +251,22 @@ exports.getCampusSchedules = async (req, res) => {
       };
     });
 
+    // 출발지-목적지가 같은 그룹 내에서만 시간 오름차순 정렬
+    formattedSchedules.sort((a, b) => {
+      // 먼저 출발지 비교
+      const depCompare = (a.departure || '').localeCompare(b.departure || '');
+      if (depCompare !== 0) return depCompare;
+      
+      // 출발지가 같으면 목적지 비교
+      const arrCompare = (a.arrival || '').localeCompare(b.arrival || '');
+      if (arrCompare !== 0) return arrCompare;
+      
+      // 출발지와 목적지가 모두 같으면 도착시간 기준 오름차순 정렬
+      const timeA = a.arrivalTime || '';
+      const timeB = b.arrivalTime || '';
+      return timeA.localeCompare(timeB);
+    });
+
     res.json({
       total,
       count: formattedSchedules.length,

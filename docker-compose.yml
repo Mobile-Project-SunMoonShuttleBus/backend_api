@@ -7,6 +7,7 @@ services:
         - PORT=${SERVER_PORT}
     environment:
       - DOCKER_ENV=true
+      - ENABLE_STOP_COORDINATE_UPDATE=true
     env_file:
       - ./.env
     ports:
