@@ -82,25 +82,25 @@
     "departures": ["07:40", "18:10"]
   },
   {
-    "routeId": "CP_SEONGNAM_BS_TO_ASAN",
+    "routeId": "CP_DONGCHEON_TO_ASAN",
     "busType": "campus",
-    "startId": "성남(본당)",
+    "startId": "성남(분당)",
     "stopId": "아산캠퍼스",
-    "routeTitle": "성남(본당) → 아산캠퍼스",
+    "routeTitle": "성남(분당) → 아산캠퍼스",
     "weekdayType": "WEEKDAY",
     "departures": ["07:25"]
   },
   {
-    "routeId": "CP_SEONGNAM_A_TO_ASAN",
+    "routeId": "CP_JUKJEON_TO_ASAN",
     "busType": "campus",
-    "startId": "성남 A",
+    "startId": "성남(분당)",
     "stopId": "아산캠퍼스",
-    "routeTitle": "성남 A → 아산캠퍼스",
+    "routeTitle": "성남(분당) → 아산캠퍼스",
     "weekdayType": "WEEKDAY",
     "departures": ["07:00"]
   },
   {
-    "routeId": "CP_ANSAN_TO_ASAN",
+    "routeId": "CP_ANSAN_CENTER_TO_ASAN",
     "busType": "campus",
     "startId": "안산",
     "stopId": "아산캠퍼스",
@@ -109,7 +109,7 @@
     "departures": ["07:20"]
   },
   {
-    "routeId": "CP_ANSAN_B_TO_ASAN",
+    "routeId": "CP_SANGROK_TO_ASAN",
     "busType": "campus",
     "startId": "안산",
     "stopId": "아산캠퍼스",
