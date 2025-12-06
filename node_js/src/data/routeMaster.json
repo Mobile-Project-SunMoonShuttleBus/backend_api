@@ -18,6 +18,15 @@
     "departures": ["07:30", "08:30"]
   },
   {
+    "routeId": "CP_MORAN_TO_ASAN",
+    "busType": "campus",
+    "startId": "모란",
+    "stopId": "아산캠퍼스",
+    "routeTitle": "모란 → 아산캠퍼스",
+    "weekdayType": "WEEKDAY",
+    "departures": ["07:20", "08:10"]
+  },
+  {
     "routeId": "SH_ASHAN_LOOP",
     "busType": "shuttle",
     "startId": "아산(KTX)역",
@@ -43,5 +52,69 @@
     "routeTitle": "천안 → 아산캠퍼스",
     "weekdayType": "WEEKDAY",
     "departures": ["07:10"]
+  }
+  ,
+  {
+    "routeId": "SH_CHEONAN_TO_ASAN",
+    "busType": "shuttle",
+    "startId": "천안역",
+    "stopId": "아산캠퍼스",
+    "routeTitle": "천안역 → 아산캠퍼스",
+    "weekdayType": "WEEKDAY",
+    "departures": ["07:00", "09:00", "18:30"]
+  },
+  {
+    "routeId": "SH_TERMINAL_TO_ASAN",
+    "busType": "shuttle",
+    "startId": "천안터미널",
+    "stopId": "아산캠퍼스",
+    "routeTitle": "천안터미널 → 아산캠퍼스",
+    "weekdayType": "WEEKDAY",
+    "departures": ["07:15", "08:45"]
+  },
+  {
+    "routeId": "SH_ONYANG_TO_ASAN",
+    "busType": "shuttle",
+    "startId": "온양역/터미널",
+    "stopId": "아산캠퍼스",
+    "routeTitle": "온양역/터미널 → 아산캠퍼스",
+    "weekdayType": "WEEKDAY",
+    "departures": ["07:40", "18:10"]
+  },
+  {
+    "routeId": "CP_DONGCHEON_TO_ASAN",
+    "busType": "campus",
+    "startId": "동천역",
+    "stopId": "아산캠퍼스",
+    "routeTitle": "동천역 → 아산캠퍼스",
+    "weekdayType": "WEEKDAY",
+    "departures": ["07:25"]
+  },
+  {
+    "routeId": "CP_JUKJEON_TO_ASAN",
+    "busType": "campus",
+    "startId": "죽전",
+    "stopId": "아산캠퍼스",
+    "routeTitle": "죽전 → 아산캠퍼스",
+    "weekdayType": "WEEKDAY",
+    "departures": ["07:00"]
+  },
+  {
+    "routeId": "CP_ANSAN_CENTER_TO_ASAN",
+    "busType": "campus",
+    "startId": "안산 중앙역",
+    "stopId": "아산캠퍼스",
+    "routeTitle": "안산 중앙역 → 아산캠퍼스",
+    "weekdayType": "WEEKDAY",
+    "departures": ["07:20"]
+  },
+  {
+    "routeId": "CP_SANGROK_TO_ASAN",
+    "busType": "campus",
+    "startId": "상록수역",
+    "stopId": "아산캠퍼스",
+    "routeTitle": "상록수역 → 아산캠퍼스",
+    "weekdayType": "WEEKDAY",
+    "departures": ["07:05"]
   }
 ]
