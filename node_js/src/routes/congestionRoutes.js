@@ -600,5 +600,108 @@ router.get('/snapshots/stats', authToken, congestionController.getSnapshotStats)
 router.get('/view', congestionController.renderCongestionView);
 router.post('/view/data', congestionController.getCongestionViewData);
 
+/**
+ * @swagger
+ * /api/congestion/campus/overview:
+ *   get:
+ *     summary: 통학버스 혼잡도 대시보드 조회
+ *     tags: [Congestion]
+ *     security:
+ *       - bearerAuth: []
+ *     description: >
+ *       집계된 혼잡도 스냅샷을 기반으로,
+ *       특정 날짜의 통학버스 노선별·출발 시간대별 혼잡도 정보를 조회합니다.
+ *       대시보드 화면(통학버스 혼잡도 카드 리스트)에서 사용됩니다.
+ *     parameters:
+ *       - in: query
+ *         name: dayKey
+ *         schema:
+ *           type: string
+ *           pattern: '^\d{4}-\d{2}-\d{2}$'
+ *           example: "2025-12-02"
+ *         required: false
+ *         description: >
+ *           조회할 날짜 키 (YYYY-MM-DD 형식).
+ *           미입력 시 서버 기준 오늘 날짜가 사용됩니다.
+ *     responses:
+ *       '200':
+ *         description: 통학버스 혼잡도 조회 성공
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 busType:
+ *                   type: string
+ *                   example: "campus"
+ *                   description: 버스 타입 (항상 "campus")
+ *                 dayKey:
+ *                   type: string
+ *                   example: "2025-12-02"
+ *                   description: 조회된 날짜 키
+ *                 lastUpdated:
+ *                   type: string
+ *                   format: date-time
+ *                   nullable: true
+ *                   example: "2025-12-02T11:00:00.000Z"
+ *                   description: 해당 날짜 스냅샷 중 가장 최근 업데이트 시간
+ *                 routes:
+ *                   type: array
+ *                   description: 노선별 혼잡도 카드 목록
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       routeTitle:
+ *                         type: string
+ *                         example: "성남(분당) → 아산캠퍼스"
+ *                         description: 노선 제목 (출발지 → 도착지)
+ *                       timeSlotsCount:
+ *                         type: integer
+ *                         example: 2
+ *                         description: 해당 노선의 출발 시간대(카드) 개수
+ *                       cards:
+ *                         type: array
+ *                         description: 출발 시간대별 혼잡도 카드 목록
+ *                         items:
+ *                           type: object
+ *                           properties:
+ *                             departureTime:
+ *                               type: string
+ *                               example: "07:30"
+ *                               description: 출발 시간 (HH:mm 형식)
+ *                             congestionLevel:
+ *                               type: string
+ *                               enum: [LOW, MEDIUM, HIGH]
+ *                               example: "LOW"
+ *                               description: 혼잡도 레벨
+ *                             congestionLabel:
+ *                               type: string
+ *                               example: "여유"
+ *                               description: 혼잡도 한글 라벨 (여유/보통/혼잡)
+ *                             samples:
+ *                               type: integer
+ *                               example: 18
+ *                               description: 해당 시간대에 모인 리포트 수
+ *       '400':
+ *         description: 잘못된 요청 (dayKey 형식 오류 등)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "dayKey는 YYYY-MM-DD 형식이어야 합니다."
+ *       '500':
+ *         description: 서버 오류
+ */
+router.get('/campus/overview', authToken, congestionController.getCampusOverview);
+
 module.exports = router;
 
