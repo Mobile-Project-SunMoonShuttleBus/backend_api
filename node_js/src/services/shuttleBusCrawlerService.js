@@ -1433,6 +1433,8 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
         // 아산캠퍼스 도착 컬럼 확인 (컬럼 3: "아산캠퍼스     도착") - 역방향 처리용
         // 주의: "아산캠퍼스_도착"은 출발지가 아니라 도착 컬럼이므로, 별도로 처리
         const campusArrivalColIdx = departureColIndices['아산캠퍼스_도착'];
+        let stationScheduleCreated = false; // 중복 생성 방지 플래그
+        
         if (campusArrivalColIdx !== undefined && stationColIdx !== undefined && stationColIdx < cells.length) {
           const stationCell = cells.eq(stationColIdx);
           const stationTime = extractTimeValue(stationCell.text());
@@ -1457,11 +1459,13 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
                 studentHallBoardingAvailable: hasHighlight(stationCell),
                 sourceUrl: CRAWL_URLS[dayType]?.[expectedDeparture] || ''
               });
+              stationScheduleCreated = true; // 스케줄 생성 완료
             }
           }
         }
 
-        if (stationColIdx !== undefined && stationColIdx < cells.length) {
+        // 아산캠퍼스 도착 컬럼이 없거나 도착 시간이 없을 때만 아래 로직 실행 (중복 방지)
+        if (!stationScheduleCreated && stationColIdx !== undefined && stationColIdx < cells.length) {
           const stationCell = cells.eq(stationColIdx);
           const stationTime = extractTimeValue(stationCell.text());
           if (stationTime) {
@@ -1482,25 +1486,29 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
               }
             }
             
-            const campusArrivalTime = finalArrivalTime || 'X';
-            const stationViaStops = [];
-            // viaStopsFromColumns와 viaStopsFromNote는 이미 위에서 정의됨 (for 루프 내부)
-            mergeViaStops(stationViaStops, viaStopsFromColumns, stationTime, campusArrivalTime);
-            mergeViaStops(stationViaStops, viaStopsFromNote, stationTime, campusArrivalTime);
-            
-            // 도착시간이 없으면 X로 저장
-            schedules.push({
-              departure: '천안 아산역',
-              arrival: '아산캠퍼스',
-              departureTime: stationTime,
-              arrivalTime: campusArrivalTime,
-              fridayOperates,
-              dayType,
-              note: noteText || '',
-              viaStops: stationViaStops,
-              studentHallBoardingAvailable: hasHighlight(stationCell),
-              sourceUrl: CRAWL_URLS[dayType]?.[expectedDeparture] || ''
-            });
+            // 아산캠퍼스 도착 컬럼에서 이미 생성했으면 건너뜀
+            if (!(campusArrivalColIdx !== undefined && finalArrivalTime && departureColIndices['아산캠퍼스_도착'] !== undefined && 
+                  extractTimeValue(cells.eq(departureColIndices['아산캠퍼스_도착']).text()) === finalArrivalTime)) {
+              const campusArrivalTime = finalArrivalTime || 'X';
+              const stationViaStops = [];
+              // viaStopsFromColumns와 viaStopsFromNote는 이미 위에서 정의됨 (for 루프 내부)
+              mergeViaStops(stationViaStops, viaStopsFromColumns, stationTime, campusArrivalTime);
+              mergeViaStops(stationViaStops, viaStopsFromNote, stationTime, campusArrivalTime);
+              
+              // 도착시간이 없으면 X로 저장
+              schedules.push({
+                departure: '천안 아산역',
+                arrival: '아산캠퍼스',
+                departureTime: stationTime,
+                arrivalTime: campusArrivalTime,
+                fridayOperates,
+                dayType,
+                note: noteText || '',
+                viaStops: stationViaStops,
+                studentHallBoardingAvailable: hasHighlight(stationCell),
+                sourceUrl: CRAWL_URLS[dayType]?.[expectedDeparture] || ''
+              });
+            }
           }
         }
       }
@@ -2980,6 +2988,22 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
         if (!finalArrival) {
           if (process.env.DEBUG_CRAWLER) {
             console.log(`[${departureKey}] 도착지가 없어서 저장하지 않음`);
+          }
+          continue;
+        }
+        
+        // 특수 처리된 노선은 일반 파싱 로직에서 제외 (중복 방지)
+        // 천안역, 천안 터미널, 천안 아산역은 각각의 특수 처리 로직에서 이미 처리됨
+        const isSpecialRoute = (finalDeparture === '천안역' && finalArrival === '아산캠퍼스') ||
+                               (finalDeparture === '아산캠퍼스' && finalArrival === '천안역') ||
+                               (finalDeparture === '천안 터미널' && finalArrival === '아산캠퍼스') ||
+                               (finalDeparture === '아산캠퍼스' && finalArrival === '천안 터미널') ||
+                               (finalDeparture === '천안 아산역' && finalArrival === '아산캠퍼스') ||
+                               (finalDeparture === '아산캠퍼스' && finalArrival === '천안 아산역');
+        
+        if (isSpecialRoute) {
+          if (process.env.DEBUG_CRAWLER) {
+            console.log(`[${departureKey}] 특수 처리된 노선은 일반 파싱 로직에서 제외: ${finalDeparture} -> ${finalArrival}`);
           }
           continue;
         }
