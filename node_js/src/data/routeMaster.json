@@ -1,0 +1,47 @@
+[
+  {
+    "routeId": "CP_ANSAN_TO_ASAN",
+    "busType": "campus",
+    "startId": "안산",
+    "stopId": "아산캠퍼스",
+    "routeTitle": "안산 → 아산캠퍼스",
+    "weekdayType": "WEEKDAY",
+    "departures": ["07:00", "08:30"]
+  },
+  {
+    "routeId": "CP_SEONGNAM_TO_ASAN",
+    "busType": "campus",
+    "startId": "성남(분당)",
+    "stopId": "아산캠퍼스",
+    "routeTitle": "성남(분당) → 아산캠퍼스",
+    "weekdayType": "WEEKDAY",
+    "departures": ["07:30", "08:30"]
+  },
+  {
+    "routeId": "SH_ASHAN_LOOP",
+    "busType": "shuttle",
+    "startId": "아산(KTX)역",
+    "stopId": "아산캠퍼스",
+    "routeTitle": "아산(KTX)역 → 아산캠퍼스",
+    "weekdayType": "WEEKDAY",
+    "departures": ["07:20", "18:00"]
+  },
+  {
+    "routeId": "CP_SEOUL_TO_ASAN",
+    "busType": "campus",
+    "startId": "서울",
+    "stopId": "아산캠퍼스",
+    "routeTitle": "서울 → 아산캠퍼스",
+    "weekdayType": "WEEKDAY",
+    "departures": ["06:30", "17:30"]
+  },
+  {
+    "routeId": "CP_GYEONGGI_TO_ASAN",
+    "busType": "campus",
+    "startId": "천안",
+    "stopId": "아산캠퍼스",
+    "routeTitle": "천안 → 아산캠퍼스",
+    "weekdayType": "WEEKDAY",
+    "departures": ["07:10"]
+  }
+]
