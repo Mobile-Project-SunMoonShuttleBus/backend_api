@@ -2,7 +2,7 @@
   {
     "routeId": "SH_TERMINAL_TO_ASAN",
     "busType": "shuttle",
-    "startId": "천안터미널",
+    "startId": "천안 터미널",
     "stopId": "아산캠퍼스",
     "routeTitle": "천안 터미널 → 아산캠퍼스",
     "weekdayType": "WEEKDAY",
@@ -20,9 +20,9 @@
   {
     "routeId": "SH_ONYANG_TO_ASAN",
     "busType": "shuttle",
-    "startId": "온양터미널/역",
+    "startId": "온양역/아산터미널",
     "stopId": "아산캠퍼스",
-    "routeTitle": "온양터미널/역 → 아산캠퍼스",
+    "routeTitle": "온양역/아산터미널 → 아산캠퍼스",
     "weekdayType": "WEEKDAY",
     "departures": ["07:50", "08:35", "12:30", "15:50"]
   },
@@ -38,9 +38,9 @@
   {
     "routeId": "CP_SEOUL_TO_ASAN",
     "busType": "campus",
-    "startId": "서울",
+    "startId": "서울(경부)",
     "stopId": "아산캠퍼스",
-    "routeTitle": "서울 → 아산캠퍼스",
+    "routeTitle": "서울(경부) → 아산캠퍼스",
     "weekdayType": "WEEKDAY",
     "departures": ["06:30", "17:30"]
   },

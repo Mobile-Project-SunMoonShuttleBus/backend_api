@@ -5,7 +5,7 @@ const { authToken } = require('../middleware/auth');
 
 /**
  * @swagger
- * /api/congestion:
+ * /congestion:
  *   post:
  *     summary: 혼잡도 조회 (요구사항 DB_table_crowd-02)
  *     tags: [Congestion]
@@ -196,7 +196,7 @@ router.post('/', authToken, congestionController.getCongestion);
 
 /**
  * @swagger
- * /api/congestion/report:
+ * /congestion/report:
  *   post:
  *     summary: 혼잡도 리포트 저장 (요구사항 DB_table_crowd-01)
  *     tags: [Congestion]
@@ -325,7 +325,7 @@ router.post('/report', authToken, congestionController.reportCongestionNew);
 
 /**
  * @swagger
- * /api/congestion/snapshots/aggregate:
+ * /congestion/snapshots/aggregate:
  *   post:
  *     summary: 혼잡도 스냅샷 수동 집계 (테스트용)
  *     tags: [Congestion]
@@ -335,35 +335,41 @@ router.post('/report', authToken, congestionController.reportCongestionNew);
  *       혼잡도 리포트를 집계하여 스냅샷을 생성합니다.
  *       주로 테스트 목적으로 사용됩니다.
  *       
- *       **집계 방식:**
- *       - `dayKey` 파라미터 제공: 해당 날짜의 리포트만 집계
- *       - `all=true` 파라미터 제공: DB에 있는 모든 날짜의 리포트를 집계
- *       - 파라미터 없음: 오늘 날짜의 리포트만 집계
- *       
- *       **주의사항:**
- *       - 이미 집계된 스냅샷이 있으면 업데이트됩니다.
- *       - 리포트가 없는 날짜는 스냅샷을 생성하지 않습니다.
+     *       **집계 방식:**
+     *       - `dayKey` 파라미터 제공: 해당 날짜의 리포트만 집계
+     *       - `all=true` 파라미터 제공: DB에 있는 모든 날짜의 리포트를 집계
+     *       - 파라미터 없음: 오늘 날짜의 리포트만 집계
+     *       
+     *       **⚠️ 중요: 파라미터 충돌**
+     *       - `all=true`와 `dayKey`를 **동시에 사용할 수 없습니다.**
+     *       - 두 파라미터를 함께 보내면 400 에러가 반환됩니다.
+     *       - 특정 날짜만 집계하려면 `all` 파라미터를 제거하고 `dayKey`만 사용하세요.
+     *       
+     *       **주의사항:**
+     *       - 이미 집계된 스냅샷이 있으면 업데이트됩니다.
+     *       - 리포트가 없는 날짜는 스냅샷을 생성하지 않습니다.
  *     parameters:
  *       - in: query
  *         name: dayKey
  *         schema:
  *           type: string
  *           pattern: '^\d{4}-\d{2}-\d{2}$'
- *         description: |
- *           날짜 키 (YYYY-MM-DD 형식)
- *           - 특정 날짜의 리포트만 집계
- *           - 예: "2025-12-02"
- *           - `all=true`와 함께 사용하면 무시됨
- *         example: "2025-12-02"
+     *         description: |
+     *           날짜 키 (YYYY-MM-DD 형식)
+     *           - 특정 날짜의 리포트만 집계
+     *           - 예: "2025-12-02"
+     *           - ⚠️ `all=true`와 함께 사용하면 400 에러가 반환됩니다.
+     *         example: "2025-12-02"
  *       - in: query
  *         name: all
  *         schema:
  *           type: boolean
- *         description: |
- *           전체 날짜 집계 여부
- *           - `true`: DB에 있는 모든 날짜의 리포트를 집계
- *           - `false` 또는 미입력: 특정 날짜만 집계
- *         example: false
+     *         description: |
+     *           전체 날짜 집계 여부
+     *           - `true`: DB에 있는 모든 날짜의 리포트를 집계
+     *           - `false` 또는 미입력: 특정 날짜만 집계
+     *           - ⚠️ `dayKey`와 함께 사용하면 400 에러가 반환됩니다.
+     *         example: false
  *     responses:
  *       200:
  *         description: 스냅샷 집계 성공
@@ -412,16 +418,36 @@ router.post('/report', authToken, congestionController.reportCongestionNew);
  *                       snapshotsCount:
  *                         type: integer
  *                         example: 5
- *       400:
- *         description: 잘못된 요청 (dayKey 형식 오류)
- *       500:
+     *       400:
+     *         description: |
+     *           잘못된 요청
+     *           - dayKey 형식 오류 (YYYY-MM-DD 형식이 아님)
+     *           - `all=true`와 `dayKey`를 동시에 사용한 경우
+     *         content:
+     *           application/json:
+     *             schema:
+     *               type: object
+     *               properties:
+     *                 success:
+     *                   type: boolean
+     *                   example: false
+     *                 message:
+     *                   type: string
+     *                   example: "파라미터 충돌: all=true와 dayKey를 동시에 사용할 수 없습니다."
+     *                 error:
+     *                   type: string
+     *                   example: "all=true를 사용하면 모든 날짜를 집계하므로 dayKey는 무시됩니다."
+     *                 hint:
+     *                   type: string
+     *                   example: "특정 날짜만 집계하려면 all 파라미터를 제거하고 dayKey만 사용하세요."
+     *       500:
  *         description: 서버 오류
  */
 router.post('/snapshots/aggregate', authToken, congestionController.aggregateSnapshots);
 
 /**
  * @swagger
- * /api/congestion/snapshots/status:
+ * /congestion/snapshots/status:
  *   get:
  *     summary: 혼잡도 집계 상태 확인
  *     tags: [Congestion]
@@ -500,7 +526,7 @@ router.get('/snapshots/status', authToken, congestionController.getSnapshotStatu
 
 /**
  * @swagger
- * /api/congestion/snapshots/stats:
+ * /congestion/snapshots/stats:
  *   get:
  *     summary: 혼잡도 집계 통계
  *     tags: [Congestion]
@@ -602,7 +628,7 @@ router.post('/view/data', congestionController.getCongestionViewData);
 
 /**
  * @swagger
- * /api/congestion/campus/overview:
+ * /congestion/campus/overview:
  *   get:
  *     summary: 통학버스 혼잡도 대시보드 조회
  *     tags: [Congestion]

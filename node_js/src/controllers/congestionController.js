@@ -435,6 +435,29 @@ exports.reportCongestionNew = async (req, res) => {
 
     // client_ts (프론트엔드에서 전송 시각, 없으면 현재 시각)
     const clientTs = req.body.clientTs ? new Date(req.body.clientTs) : new Date();
+    
+    // clientTs 유효성 검증 (너무 오래되었거나 미래인 경우 경고)
+    const timeDiff = Math.abs(now - clientTs); // 밀리초 단위 차이
+    const daysDiff = timeDiff / (1000 * 60 * 60 * 24); // 일 단위 차이
+    
+    // 30일 이상 차이나는 경우 경고 로그 (과거 데이터 적재 테스트는 허용)
+    if (daysDiff > 30) {
+      console.warn(`[경고] clientTs가 서버 시간과 ${Math.floor(daysDiff)}일 차이납니다.`, {
+        clientTs: clientTs.toISOString(),
+        serverTs: now.toISOString(),
+        daysDiff: Math.floor(daysDiff),
+        hint: '과거 데이터 적재 테스트인 경우 정상입니다.'
+      });
+    }
+    
+    // 미래 날짜인 경우 (1일 이상 미래) 경고
+    if (clientTs > now && daysDiff > 1) {
+      console.warn(`[경고] clientTs가 서버 시간보다 ${Math.floor(daysDiff)}일 미래입니다.`, {
+        clientTs: clientTs.toISOString(),
+        serverTs: now.toISOString(),
+        daysDiff: Math.floor(daysDiff)
+      });
+    }
 
     // meta 정보 추출
     const meta = {
@@ -600,6 +623,20 @@ exports.aggregateSnapshots = async (req, res) => {
   try {
     const { dayKey, all } = req.query;
     const { aggregateDaySnapshots } = require('../services/crowdSnapshotService');
+
+    // 파라미터 충돌 검증: all=true와 dayKey를 동시에 보내면 에러
+    if (all === 'true' && dayKey) {
+      return res.status(400).json({
+        success: false,
+        message: '파라미터 충돌: all=true와 dayKey를 동시에 사용할 수 없습니다.',
+        error: 'all=true를 사용하면 모든 날짜를 집계하므로 dayKey는 무시됩니다.',
+        hint: '특정 날짜만 집계하려면 all 파라미터를 제거하고 dayKey만 사용하세요.',
+        received: {
+          all: all,
+          dayKey: dayKey
+        }
+      });
+    }
 
     if (all === 'true') {
       // 모든 날짜 집계
