@@ -1,21 +1,12 @@
-[
+﻿[
   {
-    "routeId": "CP_ANSAN_TO_ASAN",
-    "busType": "campus",
-    "startId": "안산",
+    "routeId": "SH_TERMINAL_TO_ASAN",
+    "busType": "shuttle",
+    "startId": "천안터미널",
     "stopId": "아산캠퍼스",
-    "routeTitle": "안산 → 아산캠퍼스",
+    "routeTitle": "천안 터미널 → 아산캠퍼스",
     "weekdayType": "WEEKDAY",
-    "departures": ["07:00", "08:30"]
-  },
-  {
-    "routeId": "CP_SEONGNAM_TO_ASAN",
-    "busType": "campus",
-    "startId": "성남(분당)",
-    "stopId": "아산캠퍼스",
-    "routeTitle": "성남(분당) → 아산캠퍼스",
-    "weekdayType": "WEEKDAY",
-    "departures": ["07:30", "08:30"]
+    "departures": ["07:30", "09:05", "11:45", "15:10"]
   },
   {
     "routeId": "SH_ASHAN_LOOP",
@@ -24,7 +15,25 @@
     "stopId": "아산캠퍼스",
     "routeTitle": "아산(KTX)역 → 아산캠퍼스",
     "weekdayType": "WEEKDAY",
-    "departures": ["07:20", "18:00"]
+    "departures": ["07:40", "08:45", "11:30", "15:20"]
+  },
+  {
+    "routeId": "SH_ONYANG_TO_ASAN",
+    "busType": "shuttle",
+    "startId": "온양터미널/역",
+    "stopId": "아산캠퍼스",
+    "routeTitle": "온양터미널/역 → 아산캠퍼스",
+    "weekdayType": "WEEKDAY",
+    "departures": ["07:50", "08:35", "12:30", "15:50"]
+  },
+  {
+    "routeId": "SH_CHEONAN_STATION_TO_ASAN",
+    "busType": "shuttle",
+    "startId": "천안역",
+    "stopId": "아산캠퍼스",
+    "routeTitle": "천안역 → 아산캠퍼스",
+    "weekdayType": "WEEKDAY",
+    "departures": ["08:10", "08:55", "12:00", "15:40"]
   },
   {
     "routeId": "CP_SEOUL_TO_ASAN",
@@ -36,6 +45,15 @@
     "departures": ["06:30", "17:30"]
   },
   {
+    "routeId": "CP_ANSAN_TO_ASAN",
+    "busType": "campus",
+    "startId": "안산",
+    "stopId": "아산캠퍼스",
+    "routeTitle": "안산 → 아산캠퍼스",
+    "weekdayType": "WEEKDAY",
+    "departures": ["07:00"]
+  },
+  {
     "routeId": "CP_GYEONGGI_TO_ASAN",
     "busType": "campus",
     "startId": "천안",
@@ -43,5 +61,14 @@
     "routeTitle": "천안 → 아산캠퍼스",
     "weekdayType": "WEEKDAY",
     "departures": ["07:10"]
+  },
+  {
+    "routeId": "CP_SEONGNAM_TO_ASAN",
+    "busType": "campus",
+    "startId": "성남(분당)",
+    "stopId": "아산캠퍼스",
+    "routeTitle": "성남(분당) → 아산캠퍼스",
+    "weekdayType": "WEEKDAY",
+    "departures": ["07:30", "08:30"]
   }
 ]
