@@ -130,7 +130,17 @@ app.use((req, res) => {
     message: '요청한 경로를 찾을 수 없습니다.',
     error: `경로 '${req.path}'를 찾을 수 없습니다.`,
     path: req.path,
-    hint: 'API 경로를 확인해주세요. Swagger 문서(/api-docs)를 참고하세요.'
+    hint: 'API 경로를 확인해주세요. Swagger 문서(/api-docs)를 참고하세요.',
+    availableEndpoints: {
+      congestion: {
+        report: 'POST /api/congestion/report',
+        aggregate: 'POST /api/congestion/snapshots/aggregate?dayKey=YYYY-MM-DD',
+        overview: 'GET /api/congestion/campus/overview?dayKey=YYYY-MM-DD',
+        status: 'GET /api/congestion/snapshots/status',
+        stats: 'GET /api/congestion/snapshots/stats'
+      },
+      swagger: 'GET /api-docs'
+    }
   });
 });
 

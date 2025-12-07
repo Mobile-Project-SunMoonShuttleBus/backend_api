@@ -323,11 +323,13 @@ exports.reportCongestionNew = async (req, res) => {
     }
 
     // timeSlot 검증 (0-143, 10분 단위)
+    // timeSlot은 하루 24시간을 10분 단위로 나눈 값 (0 = 00:00, 143 = 23:50)
+    // 24시간 * 6 (10분 단위) = 144개 슬롯이지만, 0부터 시작하므로 0-143
     const timeSlotNum = typeof timeSlot === 'string' ? parseInt(timeSlot, 10) : timeSlot;
     if (isNaN(timeSlotNum) || timeSlotNum < 0 || timeSlotNum > 143) {
       return res.status(400).json({
         success: false,
-        message: 'timeSlot은 0부터 143까지의 숫자여야 합니다. (10분 단위)'
+        message: 'timeSlot은 0부터 143까지의 숫자여야 합니다. (10분 단위, 0=00:00, 143=23:50)'
       });
     }
 
@@ -341,6 +343,11 @@ exports.reportCongestionNew = async (req, res) => {
     }
 
     // timeSlot을 departure_time (HH:mm)으로 변환
+    // timeSlot은 10분 단위이므로:
+    // - hour = timeSlot / 6 (1시간 = 6개 슬롯)
+    // - minute = (timeSlot % 6) * 10 (나머지 슬롯 * 10분)
+    // 예: timeSlot 45 → hour = 7, minute = 30 → "07:30"
+    // 예: timeSlot 48 → hour = 8, minute = 0 → "08:00"
     const hour = Math.floor(timeSlotNum / 6);
     const minute = (timeSlotNum % 6) * 10;
     const departureTime = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;

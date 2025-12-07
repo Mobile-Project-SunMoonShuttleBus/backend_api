@@ -254,8 +254,9 @@ const swaggerSetup = (app) => {
     res.send(swaggerSpec);
   });
   
-  app.use('/api', swaggerUi.serve);
-  app.get('/api', swaggerUi.setup(swaggerSpec, {
+  // Swagger UI는 /api-docs 경로에 마운트 (API 엔드포인트와 충돌 방지)
+  app.use('/api-docs', swaggerUi.serve);
+  app.get('/api-docs', swaggerUi.setup(swaggerSpec, {
     customSiteTitle: '셔틀버스 API 문서',
     customCss: `
       .swagger-ui .topbar { display: none; }

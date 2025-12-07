@@ -112,6 +112,7 @@ async function aggregateAndSaveSnapshot(busType, startId, stopId, departureTime,
     return snapshot;
   } catch (error) {
     console.error('스냅샷 집계 오류:', error);
+    console.error('집계 파라미터:', { busType, startId, stopId, departureTime, dayKey });
     throw error;
   }
 }
