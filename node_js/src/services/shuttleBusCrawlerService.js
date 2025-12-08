@@ -2363,11 +2363,36 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
                 }
               }
               
-              // parseDurationText로 파싱되지 않았으면 extractTimeValue 시도
+              // 단일 시간 추출 시도
               if (!timeValue) {
                 timeValue = extractTimeValue(rawValue);
-                if (timeValue) {
-                  previousTimeRange = timeValue;
+                // 이전 경유지 범위가 있으면 단일 시간을 범위 형식으로 변환
+                if (timeValue && previousTimeRange && !timeValue.includes('~')) {
+                  const estimatedTime = parseDurationTextForNextViaStop('5분~20분 소요예상', previousTimeRange);
+                  if (estimatedTime) {
+                    timeValue = estimatedTime;
+                    previousTimeRange = estimatedTime;
+                  } else {
+                    const normalizeRangeLocal = (timeStr) => {
+                      if (!timeStr) return null;
+                      return timeStr.includes('~') ? timeStr : `${timeStr}~${timeStr}`;
+                    };
+                    timeValue = normalizeRangeLocal(timeValue);
+                    previousTimeRange = timeValue;
+                  }
+                } else if (timeValue) {
+                  if (previousTimeRange && !timeValue.includes('~')) {
+                    const normalizeRangeLocal = (timeStr) => {
+                      if (!timeStr) return null;
+                      return timeStr.includes('~') ? timeStr : `${timeStr}~${timeStr}`;
+                    };
+                    timeValue = normalizeRangeLocal(timeValue);
+                    previousTimeRange = timeValue;
+                  } else if (timeValue.includes('~')) {
+                    previousTimeRange = timeValue;
+                  } else {
+                    previousTimeRange = timeValue;
+                  }
                 }
               }
               
@@ -2378,6 +2403,29 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
                   source: 'table'
                 });
               } else if (/^[XΧ]+$/i.test(rawValue)) {
+                campusViaStops.push({
+                  name: stopName,
+                  time: 'X',
+                  source: 'table'
+                });
+              } else if (previousTimeRange) {
+                // 이전 경유지 범위를 기준으로 계산 시도
+                const estimatedTime = parseDurationTextForNextViaStop('5분~20분 소요예상', previousTimeRange);
+                if (estimatedTime) {
+                  campusViaStops.push({
+                    name: stopName,
+                    time: estimatedTime,
+                    source: 'table'
+                  });
+                  previousTimeRange = estimatedTime;
+                } else {
+                  campusViaStops.push({
+                    name: stopName,
+                    time: 'X',
+                    source: 'table'
+                  });
+                }
+              } else {
                 campusViaStops.push({
                   name: stopName,
                   time: 'X',
@@ -2571,6 +2619,10 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
             // 두 번째 경유지: (첫 번째 최소 시간) + 5분 ~ (첫 번째 최대 시간) + 20분
             const terminalViaStops = [];
             let previousTimeRange = null; // 이전 경유지의 시간 범위 저장
+            const normalizeRange = (timeStr) => {
+              if (!timeStr) return null;
+              return timeStr.includes('~') ? timeStr : `${timeStr}~${timeStr}`;
+            };
             
             for (const [stopName, idx] of sortedIntermediateEntries) {
               if (idx === undefined || idx >= cells.length) continue;
@@ -2579,55 +2631,44 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
               
               // "5분~20분 소요예상" 같은 텍스트가 있으면 우선적으로 파싱
               let timeValue = null;
+              const hasDurationPattern = rawValue && !/^[XΧ]+$/i.test(rawValue) && (rawValue.includes('소요예상') || rawValue.match(/\d+\s*분?\s*[~-]\s*\d+\s*분/));
               
-              // 첫 번째 경유지(두정동 맥도날드)이고 출발시간이 "X"인 경우, 실제 시간을 먼저 추출
+              // 출발시간이 X이고 첫 번째 경유지인 경우 실제 시간 추출
               if (!previousTimeRange && stopName === '두정동 맥도날드' && terminalIsX && !terminalTime && rawValue && !/^[XΧ]+$/i.test(rawValue)) {
-                // 먼저 실제 시간이 있는지 확인 (예: "08:55")
                 const directTime = extractTimeValue(rawValue);
                 if (directTime) {
-                  // 실제 시간이 있으면 그대로 사용
                   timeValue = directTime;
-                  // 단일 시간이므로 범위 형식으로 변환하지 않음
                 }
               }
               
-              // "소요예상" 또는 "분~" 패턴이 있으면 무조건 범위 형식으로 파싱 (단일 시간 추출 전에 체크)
-              if (!timeValue && rawValue && !/^[XΧ]+$/i.test(rawValue)) {
-                const hasDurationPattern = rawValue.includes('소요예상') || rawValue.match(/\d+\s*분?\s*[~-]\s*\d+\s*분/);
+              // 소요예상 패턴이 있으면 범위 형식으로 파싱
+              if (!timeValue && hasDurationPattern) {
+                let durationText = rawValue;
+                durationText = durationText.replace(/\d{1,2}[:;]\d{2}/g, '').replace(/\d{4}/g, '').trim();
                 
-                if (hasDurationPattern) {
-                  // rawValue에서 시간 부분을 제거하고 "5분~20분 소요예상" 부분만 추출
-                  let durationText = rawValue;
-                  durationText = durationText.replace(/\d{1,2}[:;]\d{2}/g, '').replace(/\d{4}/g, '').trim();
-                  
-                  // "5분~20분 소요예상" 패턴 찾기
-                  const durationMatch = durationText.match(/(\d+)\s*분?\s*[~-]\s*(\d+)\s*분/);
-                  if (durationMatch) {
-                    if (previousTimeRange) {
-                      // 이전 경유지가 있으면 이전 경유지 시간 범위 기준으로 계산
-                      const parsedTime = parseDurationTextForNextViaStop(durationText, previousTimeRange);
+                const durationMatch = durationText.match(/(\d+)\s*분?\s*[~-]\s*(\d+)\s*분/);
+                if (durationMatch) {
+                  if (previousTimeRange) {
+                    const parsedTime = parseDurationTextForNextViaStop(durationText, previousTimeRange.includes('~') ? previousTimeRange : normalizeRange(previousTimeRange));
+                    if (parsedTime) {
+                      timeValue = parsedTime;
+                      previousTimeRange = parsedTime;
+                    }
+                  } else {
+                    const baseTime = baseTimeForTerminal || terminalTime;
+                    if (baseTime) {
+                      const parsedTime = parseDurationText(durationText, baseTime);
                       if (parsedTime) {
                         timeValue = parsedTime;
                         previousTimeRange = parsedTime;
-                      }
-                    } else {
-                      // 첫 번째 경유지는 baseTime 기준으로 계산
-                      const baseTime = baseTimeForTerminal || terminalTime;
-                      if (baseTime) {
-                        const parsedTime = parseDurationText(durationText, baseTime);
-                        if (parsedTime) {
-                          timeValue = parsedTime;
-                          previousTimeRange = parsedTime;
-                        }
                       }
                     }
                   }
                 }
               }
               
-              // 첫 번째 경유지(두정동 맥도날드)이고 "소요예상" 패턴이 없으면 기본 "5분~20분 소요예상" 가정
+              // 첫 번째 경유지이고 소요예상 패턴이 없으면 기본 5분~20분 가정
               if (!timeValue && !previousTimeRange && stopName === '두정동 맥도날드' && rawValue && !/^[XΧ]+$/i.test(rawValue)) {
-                // 두정동 맥도날드는 첫 번째 경유지이므로 기본 "5분~20분 소요예상" 적용
                 const baseTime = baseTimeForTerminal || terminalTime;
                 if (baseTime) {
                   const parsedTime = parseDurationText('5분~20분 소요예상', baseTime);
@@ -2638,11 +2679,26 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
                 }
               }
               
-              // parseDurationText로 파싱되지 않았고, "소요예상"이 없으면 extractTimeValue 시도
-              // 단, "소요예상"이 있으면 절대 extractTimeValue를 사용하지 않음
-              if (!timeValue && rawValue && !/^[XΧ]+$/i.test(rawValue) && !rawValue.includes('소요예상') && !rawValue.match(/\d+\s*분?\s*[~-]\s*\d+\s*분/)) {
+              // 단일 시간 추출 시도
+              if (!timeValue && rawValue && !/^[XΧ]+$/i.test(rawValue) && !hasDurationPattern) {
                 timeValue = extractTimeValue(rawValue);
-                // 단일 시간이 추출되었지만, 다음 경유지 계산에는 사용할 수 없음 (범위 형식이 아니므로)
+              }
+              
+              // 이전 경유지 범위가 있으면 단일 시간을 범위 형식으로 변환
+              if (timeValue && previousTimeRange && !timeValue.includes('~')) {
+                const estimatedTime = parseDurationTextForNextViaStop('5분~20분 소요예상', previousTimeRange);
+                if (estimatedTime) {
+                  timeValue = estimatedTime;
+                  previousTimeRange = estimatedTime;
+                } else {
+                  timeValue = normalizeRange(timeValue);
+                  previousTimeRange = timeValue;
+                }
+              } else if (timeValue && hasDurationPattern && !timeValue.includes('~')) {
+                timeValue = normalizeRange(timeValue);
+                previousTimeRange = timeValue;
+              } else if (timeValue && timeValue.includes('~')) {
+                previousTimeRange = timeValue;
               }
               
               if (timeValue) {
@@ -2652,9 +2708,8 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
                   source: 'table'
                 });
               } else {
-                // timeValue가 없으면 이전 경유지 시간 범위를 기준으로 계산 시도
+                // 이전 경유지 범위를 기준으로 계산 시도
                 if (previousTimeRange) {
-                  // 이전 경유지 시간 범위 기준으로 "5분~20분 소요예상" 계산
                   const estimatedTime = parseDurationTextForNextViaStop('5분~20분 소요예상', previousTimeRange);
                   if (estimatedTime) {
                     terminalViaStops.push({
@@ -2664,7 +2719,6 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
                     });
                     previousTimeRange = estimatedTime;
                   } else {
-                    // 계산 실패 시 "X"로 저장
                     terminalViaStops.push({
                       name: stopName,
                       time: 'X',
@@ -2673,7 +2727,6 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
                     });
                   }
                 } else {
-                  // 이전 경유지 시간 범위가 없으면 "X"로 저장
                   terminalViaStops.push({
                     name: stopName,
                     time: 'X',
@@ -2684,14 +2737,14 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
               }
             }
             
-            // note에서 추출한 경유지도 추가 (시간 매핑)
+            // note에서 추출한 경유지 시간 매핑
             viaStopsFromNote.forEach(viaStop => {
               const viaColIdx = departureColIndices[viaStop.name];
               if (viaColIdx !== undefined && viaColIdx < cells.length) {
                 const viaCell = cells.eq(viaColIdx);
                 const rawValue = viaCell.text().trim();
                 
-                // "소요예상" 또는 "분~" 패턴이 있으면 무조건 범위 형식으로 파싱
+                // 소요예상 패턴이 있으면 범위 형식으로 파싱
                 if (rawValue && !/^[XΧ]+$/i.test(rawValue) && (rawValue.includes('소요예상') || rawValue.match(/\d+\s*분?\s*[~-]\s*\d+\s*분/))) {
                   let durationText = rawValue;
                   durationText = durationText.replace(/\d{1,2}[:;]\d{2}/g, '').replace(/\d{4}/g, '').trim();
@@ -2713,14 +2766,12 @@ function parseScheduleTable(html, dayType, expectedDeparture) {
                     }
                   }
                 } else {
-                  // "소요예상"이 없으면 extractTimeValue 시도
                   const viaTime = extractTimeValue(rawValue);
                   if (viaTime) {
                     viaStop.time = viaTime;
                   }
                 }
               }
-              // 중복 체크 후 추가
               if (!terminalViaStops.find(v => v.name === viaStop.name)) {
                 terminalViaStops.push(viaStop);
               }
