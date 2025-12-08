@@ -135,7 +135,8 @@ app.use((req, res) => {
       congestion: {
         report: 'POST /api/congestion/report',
         aggregate: 'POST /api/congestion/snapshots/aggregate?dayKey=YYYY-MM-DD',
-        overview: 'GET /api/congestion/campus/overview?dayKey=YYYY-MM-DD',
+        shuttleOverview: 'GET /api/congestion/shuttle/overview?dayKey=YYYY-MM-DD',
+        campusOverview: 'GET /api/congestion/campus/overview?dayKey=YYYY-MM-DD',
         status: 'GET /api/congestion/snapshots/status',
         stats: 'GET /api/congestion/snapshots/stats'
       },

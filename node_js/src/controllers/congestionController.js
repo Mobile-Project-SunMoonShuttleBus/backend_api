@@ -1339,6 +1339,98 @@ const getCongestionLabel = (level) => {
 };
 
 /**
+ * 셔틀버스 혼잡도 대시보드 조회
+ * GET /api/congestion/shuttle/overview
+ * 집계된 혼잡도 스냅샷을 기반으로 노선별·출발 시간대별 혼잡도 정보를 조회합니다.
+ */
+exports.getShuttleOverview = async (req, res) => {
+  try {
+    // dayKey 쿼리 파라미터 받기 (없으면 오늘 날짜)
+    let dayKey = req.query.dayKey;
+    
+    if (!dayKey) {
+      // 오늘 날짜로 설정
+      dayKey = new Date().toISOString().split('T')[0];
+    } else {
+      // dayKey 형식 검증
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dayKey)) {
+        return res.status(400).json({
+          success: false,
+          message: 'dayKey는 YYYY-MM-DD 형식이어야 합니다.',
+          example: '2025-12-02'
+        });
+      }
+    }
+
+    // busType을 shuttle로 고정
+    const busType = 'shuttle';
+
+    // CrowdSnapshot에서 해당 날짜의 셔틀버스 스냅샷 조회
+    const filter = {
+      busType: busType,
+      day_key: dayKey
+    };
+
+    const snapshots = await CrowdSnapshot.find(filter)
+      .sort({ start_id: 1, stop_id: 1, departure_time: 1 })
+      .lean();
+
+    // 노선별로 그룹핑 (start_id + stop_id 조합)
+    const routeMap = new Map();
+
+    snapshots.forEach(snapshot => {
+      const routeKey = `${snapshot.start_id}|${snapshot.stop_id}`;
+      
+      if (!routeMap.has(routeKey)) {
+        routeMap.set(routeKey, {
+          routeTitle: `${snapshot.start_id} → ${snapshot.stop_id}`,
+          startId: snapshot.start_id,
+          stopId: snapshot.stop_id,
+          cards: []
+        });
+      }
+
+      const route = routeMap.get(routeKey);
+      route.cards.push({
+        departureTime: snapshot.departure_time,
+        congestionLevel: snapshot.top_level,
+        congestionLabel: getCongestionLabel(snapshot.top_level),
+        samples: snapshot.samples
+      });
+    });
+
+    // routes 배열로 변환
+    const routes = Array.from(routeMap.values()).map(route => ({
+      routeTitle: route.routeTitle,
+      timeSlotsCount: route.cards.length,
+      cards: route.cards.sort((a, b) => a.departureTime.localeCompare(b.departureTime))
+    }));
+
+    // 전체 중 가장 최신 updated_at 찾기
+    let lastUpdated = null;
+    if (snapshots.length > 0) {
+      const maxUpdatedAt = Math.max(...snapshots.map(s => new Date(s.updated_at).getTime()));
+      lastUpdated = new Date(maxUpdatedAt).toISOString();
+    }
+
+    res.status(200).json({
+      success: true,
+      busType: busType,
+      dayKey: dayKey,
+      lastUpdated: lastUpdated,
+      routes: routes
+    });
+  } catch (error) {
+    console.error('셔틀버스 혼잡도 대시보드 조회 오류:', error);
+    res.status(500).json({
+      success: false,
+      message: '혼잡도 대시보드 조회 중 오류가 발생했습니다.',
+      error: error.message
+    });
+  }
+};
+
+/**
  * 통학버스 혼잡도 대시보드 조회
  * GET /api/congestion/campus/overview
  * 집계된 혼잡도 스냅샷을 기반으로 노선별·출발 시간대별 혼잡도 정보를 조회합니다.
