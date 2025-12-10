@@ -374,47 +374,6 @@ exports.reportCongestionNew = async (req, res) => {
       }
     }
 
-    // 실제 운행 스케줄 확인
-    let isValidSchedule = false;
-    if (busType === 'shuttle') {
-      const scheduleFilter = {
-        departure: normalizedStartId,
-        arrival: normalizedStopId,
-        departureTime: departureTime,
-        dayType: { $in: dayTypes }
-      };
-      
-      // 금요일은 fridayOperates가 true인 스케줄만 허용
-      if (weekdayNum === 5) {
-        scheduleFilter.fridayOperates = true;
-      }
-      // 월~목은 모든 평일 스케줄 허용
-      
-      const shuttleSchedule = await ShuttleBus.findOne(scheduleFilter);
-      isValidSchedule = !!shuttleSchedule;
-    } else if (busType === 'campus') {
-      const campusSchedule = await CampusBus.findOne({
-        departure: normalizedStartId,
-        arrival: normalizedStopId,
-        departureTime: departureTime,
-        dayType: { $in: dayTypes }
-      });
-      isValidSchedule = !!campusSchedule;
-    }
-
-    if (!isValidSchedule) {
-      return res.status(404).json({
-        success: false,
-        message: '해당 시간대에 운행하는 스케줄이 없습니다.',
-        busType: busType,
-        startId: startId,
-        stopId: stopId,
-        departureTime: departureTime,
-        weekday: weekdayNum,
-        dayTypes: dayTypes
-      });
-    }
-
     // day_key 계산 (YYYY-MM-DD)
     const now = new Date();
     const dayKey = now.toISOString().split('T')[0]; // YYYY-MM-DD
